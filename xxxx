@@ -1,0 +1,59 @@
+name: 'OpenShift Pod Runner'
+description: 'Runs a command inside an OpenShift pod using a specified image, environment variables, and volumes, then tears down the pod.'
+inputs:
+  image_name:
+    description: 'The name of the image to use for the pod.'
+    required: true
+  oc_parameters:
+    description: 'Comma-separated OpenShift template parameters (e.g., KEY1=value1,KEY2=value2).'
+    required: true
+  command:
+    description: 'Command to execute inside the pod.'
+    required: true
+  env_vars:
+    description: 'Comma-separated environment variables (e.g., ENV1=value1,ENV2=value2).'
+    required: false
+  volumes:
+    description: 'Comma-separated volume definitions (e.g., /host/path:/container/path,RO).'
+    required: false
+outputs:
+  pod_status:
+    description: 'Status of the executed pod.'
+runs:
+  using: 'composite'
+  steps:
+    - name: Authenticate with OpenShift
+      shell: bash
+      run: |
+        echo "${{ secrets.OPENSHIFT_TOKEN }}" | oc login --token=$(cat -) --server=${{ secrets.OPENSHIFT_SERVER }}
+
+    - name: Process OpenShift Template
+      shell: bash
+      run: |
+        # Prepare environment variables for the pod
+        ENV_VARS=$(echo '${{ inputs.env_vars }}' | awk -F, '{ for (i=1; i<=NF; i++) print "--env " $i }')
+
+        # Prepare volumes for the pod
+        VOLUMES=$(echo '${{ inputs.volumes }}' | awk -F, '{ for (i=1; i<=NF; i++) { split($i, v, ":"); print "--volume " v[1] ":" v[2] }}')
+
+        # Apply parameters and generate the pod template
+        OC_PARAMS=$(echo '${{ inputs.oc_parameters }}' | tr ',' ' ')
+        oc process -f pod-template.yaml -p IMAGE_NAME=${{ inputs.image_name }} $OC_PARAMS > pod.yaml
+
+        # Inject environment variables and volumes
+        sed -i "/containers:/a \ \ \ \ env: [$ENV_VARS]" pod.yaml
+        sed -i "/spec:/a \ \ \ \ volumes: [$VOLUMES]" pod.yaml
+
+    - name: Deploy Pod
+      shell: bash
+      run: oc apply -f pod.yaml
+
+    - name: Execute Command in Pod
+      shell: bash
+      run: |
+        POD_NAME=$(oc get pod -l app=${{ inputs.image_name }} -o jsonpath='{.items[0].metadata.name}')
+        oc exec $POD_NAME -- sh -c '${{ inputs.command }}'
+
+    - name: Tear Down Pod
+      shell: bash
+      run: oc delete -f pod.yaml
