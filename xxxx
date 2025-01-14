@@ -57,3 +57,56 @@ runs:
     - name: Tear Down Pod
       shell: bash
       run: oc delete -f pod.yaml
+
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ${POD_NAME}
+spec:
+  containers:
+  - name: example-container
+    image: nginx:latest
+    volumeMounts:
+    - name: config-volume
+      mountPath: /app/config # Change this to the desired mount path inside the container
+  volumes:
+  - name: config-volume
+    configMap:
+      name: ${CONFIGMAP_NAME}
+
+name: Deploy with Volume Mount
+
+on:
+  workflow_dispatch:
+    inputs:
+      folder_path:
+        description: "Local folder to mount"
+        required: true
+        default: "/path/to/local/folder"
+      pod_name:
+        description: "Pod name"
+        required: true
+        default: "example-pod"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Process and Apply OpenShift Template
+        run: |
+          # Define variables
+          LOCAL_FOLDER="${{ inputs.folder_path }}"
+          POD_NAME="${{ inputs.pod_name }}"
+
+          # Create a ConfigMap from the local folder
+          oc create configmap my-config --from-file=$LOCAL_FOLDER --dry-run=client -o yaml | oc apply -f -
+
+          # Process the OpenShift template and deploy
+          oc process -f pod-template.yaml \
+            -p POD_NAME=$POD_NAME \
+            -p CONFIGMAP_NAME=my-config \
+            | oc apply -f -
