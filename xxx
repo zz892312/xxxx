@@ -21,3 +21,65 @@ jobs:
         env:
           OPENSHIFT_SERVER: ${{ secrets.OPENSHIFT_SERVER }}
           OPENSHIFT_TOKEN: ${{ secrets.OPENSHIFT_TOKEN }}
+
+
+Personal Goals
+
+Enhance Sprint Planning & Scrum Master Role
+
+Improve team coordination by refining sprint planning and backlog grooming processes.
+
+Facilitate efficient team sync up, retrospectives, and sprint reviews to ensure alignment.
+
+Act as a bridge between development and operations to improve communication and workflow.
+
+Lead DevOps Initiatives
+
+Take ownership of DevOps tasks by ensuring timely follow-ups, tracking progress, and providing technical solutions.
+
+Improve cross-team collaboration by maintaining clear communication channels.
+
+Identify and implement DevOps best practices to streamline workflows and enhance automation.
+
+Expand MLOps Experience (If Time Permits)
+
+Gain exposure to AI farm infrastructure tasks to deepen knowledge in MLOps.
+
+Assist in infrastructure-related AI/ML initiatives where feasible while balancing DevOps priorities.
+
+Team Goals
+
+AI Farm Automation
+
+Support automation efforts for AI farm deployments.
+
+Develop deployment automation templates to streamline onboarding and deployment after new clusters go live.
+
+Compliance Enforcement
+
+Align with RBC’s latest compliance policies by incorporating updated gating steps.
+
+Collaborate with software engineers and researchers to instill good compliance practices in the development lifecycle.
+
+Jenkins Deprecation & Migration
+
+Address outstanding infrastructure and DevOps tasks related to Jenkins migration.
+
+Transition Jenkins pipelines (Jenkinsfiles) to GitHub Actions (GHA).
+
+Migrate GPU-based Jenkins agents and jobs to GHA for better resource utilization and maintainability.
+
+UCD Deprecation & Helios Migration
+
+Partner with the development team to establish a structured approach for migrating Borealis applications.
+
+Transition legacy deployment processes from UCD to Helios to ensure a more modern, scalable deployment strategy.
+
+Documentation & Automation
+
+Improve DevOps documentation to enhance onboarding and knowledge sharing.
+
+Automate manual efforts related to app code configuration and deployment processes, time permitting.
+
+Ensure best practices and documentation are available for new team members and cross-team collaboration.
+
