@@ -83,3 +83,7 @@ Automate manual efforts related to app code configuration and deployment process
 
 Ensure best practices and documentation are available for new team members and cross-team collaboration.
 
+
+
+gh run view <run_id> --log --repo OWNER/REPO | tee workflow.log
+
