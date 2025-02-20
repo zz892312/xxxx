@@ -47,7 +47,15 @@ runs:
     - name: Deploy Pod
       shell: bash
       run: oc apply -f pod.yaml
-gh api repos/OWNER/REPO/actions/runs/$(gh run list --repo OWNER/REPO --json databaseId --jq '.[0].databaseId')/logs -q | tee workflow.log
+gh api repos/OWNER/REPO/actions/runs/$(gh run list --repo OWNER/REPO --json databaseId --jq '.[0].databaseId')/logs --method GET --silent --output workflow.zip
+
+
+
+gh api repos/OWNER/REPO/check-runs \
+  --method GET \
+  --header "Accept: application/vnd.github+json" \
+  --jq '.check_runs[] | select(.status=="completed") | {name: .name, conclusion: .conclusion, annotations: .output.annotations}'
+
 
 
 gh api repos/OWNER/REPO/actions/runs/$(gh run list --repo OWNER/REPO --json databaseId --jq '.[0].databaseId')/logs -q | tee workflow.log
