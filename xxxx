@@ -48,6 +48,9 @@ runs:
       shell: bash
       run: oc apply -f pod.yaml
 
+
+gh api repos/OWNER/REPO/actions/runs/$(gh run list --repo OWNER/REPO --json databaseId --jq '.[0].databaseId')/logs -q | tee workflow.log
+
     - name: Execute Command in Pod
       shell: bash
       run: |
