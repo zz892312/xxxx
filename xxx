@@ -88,7 +88,7 @@ Ensure best practices and documentation are available for new team members and c
 gh run view <run_id> --log --repo OWNER/REPO | tee workflow.log
 
 
-
+MESSAGE=$(echo '${{ needs.generate-message.outputs.message }}' | jq -Rs '.' | sed 's/\\n/\\\\n/g')
 
 
   send-to-slack:
