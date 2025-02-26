@@ -87,3 +87,23 @@ Ensure best practices and documentation are available for new team members and c
 
 gh run view <run_id> --log --repo OWNER/REPO | tee workflow.log
 
+
+
+
+
+  send-to-slack:
+    needs: generate-message
+    runs-on: ubuntu-latest
+    steps:
+      - name: Format Multi-line Message for Slack
+        run: |
+          MESSAGE=$(echo '${{ needs.generate-message.outputs.message }}' | jq -Rs '.')
+          echo "{ \"channel\": \"#your-channel\", \"text\": $MESSAGE }" > slack_payload.json
+        shell: bash
+
+      - name: Send Slack Notification (v2.0.0)
+        uses: slackapi/slack-github-action@v2.0.0
+        with:
+          payload-file-path: ./slack_payload.json
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
