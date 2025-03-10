@@ -231,3 +231,81 @@ This error suggests a Jenkins agent issue. How would you determine whether it's 
 If this happens only on the develop branch, what configuration differences between branches would you check?
 How would you confirm whether the agent is overloaded or experiencing resource exhaustion?
 If you're using Kubernetes-based agents, what would you check to ensure they are being properly scheduled and assigned resources?
+
+
+
+
+Common Development Environment Debugging
+1. Dependency Conflicts in a Polyglot Project
+Scenario:
+Your team is working on a Python + Node.js microservice. Running npm install works fine, but pip install -r requirements.txt fails with:
+
+bash
+Copy
+Edit
+ERROR: Package numpy 1.19.5 is not compatible with tensorflow 2.12.0
+Additionally, when running the Node.js service, you get:
+
+bash
+Copy
+Edit
+Error: Cannot find module 'express'
+Even though package.json includes "express": "^4.17.1".
+
+Debugging Questions:
+The Python dependency conflict suggests an issue with TensorFlow and NumPy. How would you fix this?
+The missing Node.js module occurs despite being in package.json. How would you check whether the module is correctly installed?
+If this issue only occurs on a specific developer’s machine but not others, what environment differences would you check?
+If a Docker container is used for development, what steps would you take to ensure the dependencies are correctly installed inside the container?
+How would you enforce consistent dependencies across developers and CI/CD?
+GitHub Actions Debugging
+2. Secret Management Issue in GitHub Actions
+Scenario:
+A GitHub Actions workflow is failing at the deployment step with the error:
+
+bash
+Copy
+Edit
+Error: Missing required environment variable DEPLOY_API_KEY
+Your .github/workflows/deploy.yml includes:
+
+yaml
+Copy
+Edit
+env:
+  DEPLOY_API_KEY: ${{ secrets.DEPLOY_API_KEY }}
+But the secret exists in the GitHub repository settings.
+
+Debugging Questions:
+If the secret exists, why would GitHub Actions fail to read it?
+How would you check if the workflow has the correct permissions to access secrets?
+If the workflow runs fine on feature branches but fails on main, what repository settings or branch protections could be affecting it?
+If the workflow runs on a self-hosted runner, how would you verify whether the runner has access to repository secrets?
+How would you securely debug and verify that the secret is being correctly injected into the environment?
+3. Failed Artifact Upload in CI/CD
+Scenario:
+A GitHub Actions job compiles a Java application and attempts to upload a build artifact (.jar file) for deployment. The workflow fails with:
+
+bash
+Copy
+Edit
+Error: No such file or directory: 'build/output.jar'
+Your workflow includes:
+
+yaml
+Copy
+Edit
+- name: Build JAR
+  run: mvn package -DskipTests
+
+- name: Upload JAR
+  uses: actions/upload-artifact@v3
+  with:
+    name: app-artifact
+    path: build/output.jar
+Debugging Questions:
+The error suggests the file wasn't generated or is in the wrong location. How would you verify whether the build process succeeded?
+If the mvn package step logs show a successful build, but the file is still missing, what could have happened?
+How would you determine if this is a permissions issue vs. a misconfigured artifact path?
+If the workflow works fine on Linux runners but fails on Windows runners, what differences would you check?
+How would you modify the workflow to fail fast if the artifact isn't found before reaching the upload step?
