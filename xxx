@@ -107,3 +107,127 @@ MESSAGE=$(echo '${{ needs.generate-message.outputs.message }}' | jq -Rs '.' | se
           payload-file-path: ./slack_payload.json
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+
+
+
+
+
+Non-ML CI/CD Debugging Questions
+1. GitHub Actions: Debugging a Failing Workflow
+Scenario:
+Your team uses GitHub Actions to automate testing and deployments. A recent push to the main branch triggered the following error:
+
+bash
+Copy
+Edit
+Error: Process completed with exit code 1.
+The remote server returned an error: (403) Forbidden.
+Your .github/workflows/deploy.yml includes:
+
+yaml
+Copy
+Edit
+- name: Deploy to Production
+  run: curl -X POST -H "Authorization: Bearer ${{ secrets.DEPLOY_TOKEN }}" \
+       -d '{}' https://deployment.example.com/api/v1/deploy
+Debugging Questions:
+What could cause a 403 Forbidden error when making this API request?
+How would you verify that secrets.DEPLOY_TOKEN is being passed correctly?
+If the API recently changed authentication methods, how would you update the workflow to support it?
+
+
+
+
+
+
+2. GitHub Actions Multi-Branch Pipeline Failure
+Scenario:
+Your team uses GitHub Actions to automate testing and deployments for a microservice. The workflow runs successfully on feature branches and pull requests, but fails on the develop branch with the error:
+
+bash
+Copy
+Edit
+Error: Unable to resolve action 'actions/setup-node@v3', repository not found.
+Your .github/workflows/build.yml includes:
+
+yaml
+Copy
+Edit
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 16
+
+      - name: Install dependencies
+        run: npm install
+Debugging Questions:
+The error suggests that GitHub Actions can't find actions/setup-node@v3. What are some possible causes for this, and how would you check?
+This issue only happens on the develop branch. What branch-specific settings or permissions would you investigate?
+How would you confirm whether the issue is due to GitHub Actions service downtime or a repository permission issue?
+If this workflow was working previously but recently started failing, what recent changes (in GitHub Actions, the repo, or dependencies) would you check?
+If the organization has a self-hosted runner, how would you determine whether the failure is due to network restrictions, cached dependencies, or incorrect runner configuration?
+
+
+
+
+1. Common Development Environment Build Debugging
+Scenario:
+You're setting up a Python development environment for a new project, but developers report issues when running the setup.
+
+Problem:
+After running:
+
+bash
+Copy
+Edit
+pip install -r requirements.txt
+They get:
+
+bash
+Copy
+Edit
+ERROR: Could not find a version that satisfies the requirement tensorflow==2.8.0 (from versions: 1.15.0, 2.0.0, 2.7.0)
+ERROR: No matching distribution found for tensorflow==2.8.0
+Additionally, some users report that their virtual environment isn't activating properly:
+
+bash
+Copy
+Edit
+source venv/bin/activate
+-bash: venv/bin/activate: No such file or directory
+On Windows machines, they see:
+
+bash
+Copy
+Edit
+venv\Scripts\activate : File cannot be loaded because running scripts is disabled on this system.
+Debugging Questions:
+What could be causing the TensorFlow version compatibility issue, and how would you resolve it?
+The virtual environment is failing to activate. How would you troubleshoot this on Linux/macOS vs. Windows?
+On Windows, PowerShell is blocking script execution. How would you fix this, and is it safe to modify execution policies?
+If different developers are experiencing different issues, what steps would you take to standardize the development setup across all machines?
+If a developer is running into this issue inside a Docker container, how would your debugging approach change?
+
+
+
+2. Jenkins Multi-Branch Pipeline Failing Due to Misconfigured Agent
+Scenario:
+Your team maintains a multi-branch Jenkins pipeline that builds and deploys a microservice. Developers report that PR builds work fine, but the develop branch fails with:
+
+bash
+Copy
+Edit
+hudson.remoting.ChannelClosedException: Channel "unknown" closed.
+Caused by: java.io.IOException: Unexpected termination of the channel
+Debugging Questions:
+This error suggests a Jenkins agent issue. How would you determine whether it's a problem with the agent itself or the network?
+If this happens only on the develop branch, what configuration differences between branches would you check?
+How would you confirm whether the agent is overloaded or experiencing resource exhaustion?
+If you're using Kubernetes-based agents, what would you check to ensure they are being properly scheduled and assigned resources?
