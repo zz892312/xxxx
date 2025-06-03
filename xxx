@@ -27,3 +27,26 @@ class ONNXHandler(BaseHTTPRequestHandler):
 httpd = HTTPServer(('0.0.0.0', 8001), ONNXHandler)
 httpd.serve_forever()
 "
+# Create a YAML file for your ONNX inference workload
+cat << EOF > onnx-inference.yaml
+apiVersion: run.ai/v2alpha1
+kind: Workload
+metadata:
+  name: onnx-inference
+spec:
+  workloadType: inference
+  image: mcr.microsoft.com/onnxruntime/server:latest
+  gpu:
+    value: 1
+  ports:
+    - containerPort: 8001
+      serviceType: nodePort
+  volumes:
+    - name: model-volume
+      hostPath: /path/to/your/model
+      containerPath: /app/model
+  command: ["python", "-m", "onnxruntime.tools.server", "--model_path", "/app/model/your-model.onnx", "--host", "0.0.0.0", "--port", "8001"]
+EOF
+
+# Submit the workload
+kubectl apply -f onnx-inference.yaml
