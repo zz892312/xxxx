@@ -50,3 +50,16 @@ EOF
 
 # Submit the workload
 kubectl apply -f onnx-inference.yaml
+
+
+
+# Set your project first
+runai config project <your-project-name>
+
+# Submit ONNX inference workspace without pre-loaded model
+runai workspace submit onnx-inference \
+  --image mcr.microsoft.com/onnxruntime/server:latest-cuda \
+  --gpu 1 \
+  --service-type nodeport \
+  --port 8080 \
+  --command -- onnxruntime_server --host 0.0.0.0 --port 8080
