@@ -1,3 +1,91 @@
-kubectl patch --namespace knative-serving configmap config-network -p '{"data": {"namespace-wildcard-cert-selector": "matchLabels:\n  networking.knative.dev/wildcard-cert: \"enabled\""}}'
+KServe vs Knative Serving: Why KServe Adds Essential ML Capabilities
+KServe: Built on Knative Serving Foundation
+KServe is built on top of Knative Serving, extending its serverless capabilities with machine learning-specific features. While Knative Serving provides excellent general-purpose serverless container orchestration, it lacks the specialized ML serving capabilities that production ML systems require.
 
-kubectl label namespace runai-sandbox networking.knative.dev/wildcard-cert=enabled
+What Knative Serving Lacks for ML Workloads
+ML Framework Support
+
+No built-in support for TensorFlow, PyTorch, XGBoost, SKLearn, ONNX
+Requires manual containerization and serving logic for each model
+No standard inference APIs or protocols
+
+Model Management
+
+No model versioning or A/B testing capabilities
+No canary deployments for model updates
+No model registry integration
+
+Storage Integration
+
+No built-in storage initializers for downloading models from cloud storage
+No support for S3, GCS, or other remote model artifact storage
+Manual setup required for model artifact retrieval
+
+ML-Specific Features
+
+No explainability support (LIME, SHAP)
+No multi-model serving or ensemble capabilities
+No preprocessing/postprocessing pipelines
+No ML-aware autoscaling based on inference patterns
+
+
+Why Choose KServe Over Pure Knative Serving
+Built-in Storage Support
+
+Native integration with S3, GCS, and other cloud storage for model artifacts
+Storage initializer containers automatically download models before serving
+Custom Storage Initializer support for model registries
+
+ML-Native Capabilities
+
+Multi-framework support: Built-in support for TensorFlow, XGBoost, scikit-learn, PyTorch, and ONNX frameworks
+Model versioning: Built-in A/B testing, canary deployments, and traffic splitting
+Inference protocols: High abstraction interfaces for common ML frameworks to solve production model serving use cases
+Explainability: Native support for model explanations out-of-the-box
+
+Simplified ML Operations
+
+Declarative deployment: Simple YAML configurations for complex ML serving scenarios
+Deploy models by just pointing to where model artifacts are stored remotely
+ML-aware scaling: Serverless inferencing with high scalability on Kubernetes
+Ecosystem integration: Seamless integration with Kubeflow and other ML platforms
+
+
+KServe's Limitations
+Complexity Overhead
+
+Kubernetes dependency: Requires deep Kubernetes knowledge for production deployments
+Configuration complexity: Advanced use cases require complex InferenceService configurations
+Learning curve: Additional abstractions on top of Knative Serving concepts
+
+Integration Challenges
+
+MLOps pipeline gaps: Limited native CI/CD integration compared to specialized ML platforms
+Monitoring scope: Focus on serving metrics rather than comprehensive ML observability
+Enterprise features: Security and compliance features may require additional configuration
+
+Resource Overhead
+
+Additional abstractions: Extra layer on top of Knative Serving adds complexity
+Memory footprint: ML-specific components consume additional cluster resources
+Cold start considerations: Model loading adds to serverless cold start times
+
+
+Decision Framework
+Choose KServe When:
+
+You need ML-specific serving features (storage integration, versioning, explainability)
+You're building on Kubernetes and want serverless ML capabilities
+You need standardized serving across multiple ML frameworks
+You want built-in model artifact management from cloud storage
+
+Consider Pure Knative When:
+
+You have simple containerized applications without ML-specific needs
+You prefer minimal overhead and maximum flexibility
+You have custom serving logic outside standard ML patterns
+You want to avoid additional ML-focused abstractions
+
+
+Conclusion
+KServe extends Knative Serving with performant, high abstraction interfaces for common ML frameworks and built-in storage capabilities that make it production-ready for machine learning workloads. While it adds complexity over pure Knative Serving, the ML-specific features and storage integration justify the overhead for organizations deploying ML models at scale.
