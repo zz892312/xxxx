@@ -1,5 +1,92 @@
-# Enable debug logging for authorization
-kubectl exec -n namespace1 your-inference-pod -c istio-proxy -- curl -X POST localhost:15000/logging?rbac=debug
+# Step 1: RequestAuthentication - Validates JWT tokens
+apiVersion: security.istio.io/v1beta1
+kind: RequestAuthentication
+metadata:
+  name: model-jwt-auth
+  namespace: namespace1
+spec:
+  selector:
+    matchLabels:
+      serving.knative.dev/service: model1  # Apply to both models
+  jwtRules:
+  - issuer: "https://kubernetes.default.svc.cluster.local"
+    audiences: ["https://kubernetes.default.svc.cluster.local"]
+    fromHeaders:
+    - name: Authorization
+      prefix: "Bearer "
 
-# View the proxy logs
-kubectl logs -n namespace1 your-inference-pod -c istio-proxy --follow
+---
+# Step 2: AuthorizationPolicy for Model1 - Controls WHO can access WHAT
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: model1-authz-policy
+  namespace: namespace1
+spec:
+  selector:
+    matchLabels:
+      serving.knative.dev/service: model1
+  rules:
+  - from:
+    - source:
+        # This matches the 'sub' claim in the JWT token
+        principals: ["system:serviceaccount:namespace1:service-account-1"]
+    to:
+    - operation:
+        paths: ["/models/model1*"]
+    when:
+    - key: request.headers[":method"]
+      values: ["GET", "POST"]
+
+---
+# Step 3: AuthorizationPolicy for Model2
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: model2-authz-policy
+  namespace: namespace1
+spec:
+  selector:
+    matchLabels:
+      serving.knative.dev/service: model2
+  rules:
+  - from:
+    - source:
+        principals: ["system:serviceaccount:namespace1:service-account-2"]
+    to:
+    - operation:
+        paths: ["/models/model2*"]
+    when:
+    - key: request.headers[":method"]
+      values: ["GET", "POST"]
+
+
+
+
+# Method 1: Get token for service-account-1
+TOKEN_SA1=$(kubectl create token service-account-1 -n namespace1)
+
+# Method 2: Or get from existing secret (if using older K8s versions)
+# TOKEN_SA1=$(kubectl get secret $(kubectl get sa service-account-1 -n namespace1 -o jsonpath='{.secrets[0].name}') -n namespace1 -o jsonpath='{.data.token}' | base64 -d)
+
+# Use token to access model1
+curl -H "Authorization: Bearer $TOKEN_SA1" \
+     -H "Content-Type: application/json" \
+     -d '{"instances": [[1,2,3,4]]}' \
+     https://your-model1-endpoint/models/model1:predict
+
+# Get token for service-account-2
+TOKEN_SA2=$(kubectl create token service-account-2 -n namespace1)
+
+# Use token to access model2
+curl -H "Authorization: Bearer $TOKEN_SA2" \
+     -H "Content-Type: application/json" \
+     -d '{"instances": [[5,6,7,8]]}' \
+     https://your-model2-endpoint/models/model2:predict
+
+# This will FAIL - service-account-1 trying to access model2
+curl -H "Authorization: Bearer $TOKEN_SA1" \
+     -H "Content-Type: application/json" \
+     -d '{"instances": [[1,2,3,4]]}' \
+     https://your-model2-endpoint/models/model2:predict
+# Expected: 403 Forbidden
