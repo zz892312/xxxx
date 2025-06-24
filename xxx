@@ -1,3 +1,10 @@
+
+Based on my experience working with Spencer, he has been highly responsive to the Kai project team's DevOps issues and consistently provides effective solutions to improve the CI/CD processes. He communicates well, adapts easily to changes, and delivers updates quickly within the given scope. Spencer also supports other teams by sharing his expertise, which is greatly appreciated. It’s been a pleasure working with him.
+
+
+
+
+
 # Step 1: RequestAuthentication - Validates JWT tokens
 apiVersion: security.istio.io/v1beta1
 kind: RequestAuthentication
