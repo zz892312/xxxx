@@ -1,85 +1,95 @@
-# OpenShift Service Mesh & KServe Deployment Analysis
+# OpenShift Service Mesh & KServe Deployment – What We Learned
 
-## 🛑 Validation of Service Mesh Impact on OpenShift Routes
+## Validation of Service Mesh Impact on OpenShift Routes
 
-- **Confirmed Behavior**:  
-  ✅ When a namespace joins the `ServiceMeshMemberRoll`:
-  - OpenShift Routes pointing directly to services **stop working**
-  - All traffic is forced through Istio Ingress Gateway
-  - Native OpenShift Route mTLS becomes incompatible
+### What Happens
 
-- **Root Cause**:  
-  Istio sidecars intercept traffic and enforce these rules:
-  - External traffic must enter via `istio-ingressgateway`
-  - Internal communication requires mesh mTLS
-  - Standard routes bypass Istio's proxy, causing failures
+Once a namespace is added to the `ServiceMeshMemberRoll`:
 
-## 🔧 KServe Deployment Modes: Trade-offs
+- OpenShift Routes that point directly to services **stop working**
+- All external traffic is rerouted through the Istio Ingress Gateway
+- OpenShift’s built-in mTLS with routes doesn’t work anymore
 
-### ⚙️ RawDeployment Mode (Non-Istio Approach)
-```yaml
-# DataScienceCluster CR Configuration
-kserve:
+### Why This Happens
+
+Istio sidecars kick in and take over traffic control:
+
+- All external access has to go through the `istio-ingressgateway`
+- Internal services are expected to use Istio’s mTLS
+- OpenShift Routes bypass Istio, so the traffic doesn’t get handled the way Istio expects—and fails
+
+---
+
+## KServe Deployment Modes: Trade-offs
+
+### RawDeployment Mode (No Istio/Knative)
+
+Here’s an example configuration:
+
+<pre><code>kserve:
   defaultDeploymentMode: RawDeployment
   managementState: Managed
   serving:
-    managementState: Removed  # Disables Knative dependency
+    managementState: Removed  # Turns off Knative
+</code></pre>
 
+### Why We Might Want This
 
-✅ Advantages
-OpenShift Route Compatibility: Native routes function normally
+- **OpenShift Route Compatibility**: Native routes work as expected
+- **Network Flexibility**: Standard Ingress/LoadBalancers are usable
+- **Multi-Volume Support**: We can mount multiple volumes easily
+- **Simpler Architecture**: No Knative or Istio to manage
 
-Network Flexibility: Use standard Ingress/LoadBalancers
+### What We Miss Out On
 
-Multi-Volume Support: Mount multiple storage volumes
+| Feature                  | RawDeployment | Serverless Mode (Knative/Istio) |
+|--------------------------|---------------|----------------------------------|
+| Scale-to-Zero            | No            | Yes                              |
+| Request-Based Scaling    | No            | Yes                              |
+| Canary Deployments       | No            | Yes                              |
+| Automatic mTLS           | No            | Yes                              |
+| Advanced Routing         | No            | Yes (retries, timeouts, etc.)    |
+| Serverless Billing Model | No            | Yes                              |
 
-Simpler Architecture: No Knative/Istio operational overhead
+---
 
-⚠️ Missing KServe Features (vs Serverless Mode)
-Feature	RawDeployment	Serverless Mode (Knative/Istio)
-Scale-to-Zero	❌	✅ Automatic during inactivity
-Request-Based Scaling	❌	✅ Pods scale with request volume
-Canary Deployments	❌	✅ Traffic splitting by percentage
-Automatic mTLS	❌	✅ Service-to-service encryption
-Advanced Routing	❌	✅ Retries, timeouts, circuit-breaking
-Serverless Economics	❌	✅ Pay-per-request cost model
-🧩 Critical Limitations & Workarounds
-Scaling Requirements:
+## Some Things to Watch Out For
 
-Manual Horizontal Pod Autoscaler (HPA) configuration needed
+### Scaling
 
-Scale based on CPU/memory metrics instead of requests
+- We'll need to configure Horizontal Pod Autoscalers (HPAs) manually
+- Scaling is based on CPU/memory metrics, not HTTP request volume
 
-Security Implications:
+### Security
 
-Implement TLS termination at OpenShift Routes
+- TLS termination must be handled manually at the OpenShift Route level
+- For service-to-service encryption, we'll need to manually configure mTLS or use other mechanisms
 
-Service-to-service encryption requires manual setup
+### Platform Constraints
 
-Platform Constraints:
+- Port conflicts can happen (e.g., Istio might already bind to port 8888)
+- RawDeployment mode is **not fully supported** on single-node OpenShift clusters
 
-Port conflicts possible (e.g., Istio may block port 8888)
+---
 
-Limited support status on single-node clusters
+## When to Use RawDeployment
 
-📌 Recommended Path Forward
-When to Choose RawDeployment
-Priority is preserving existing OpenShift Routes/LoadBalancers
+RawDeployment is a good fit if:
 
-Advanced traffic management (canaries, A/B tests) not required
+- When we want to keep using existing OpenShift Routes or LoadBalancers
+- When we don't need traffic-splitting features like canary or A/B testing
+- When we're comfortable handling autoscaling and security manually
 
-Your team can manage manual scaling and encryption
+---
 
-Migration Checklist
-Disable Knative via serving.managementState: Removed
+## Migration Checklist
 
-Configure KServe for RawDeployment mode
+- Set `serving.managementState` to `Removed` to disable Knative
+- Set KServe’s `defaultDeploymentMode` to `RawDeployment`
+- Configure Kubernetes HPA for autoscaling
+- Test OpenShift Routes to confirm they’re working
+- Set up TLS manually if required
 
-Set up Kubernetes HPA for scaling
+---
 
-Verify OpenShift Route functionality post-migration
-
-Implement manual TLS encryption where needed
-
-Operational Note:
-For production environments using single-node OpenShift, consult Red Hat's RawDeployment documentation due to Limited Availability status.
+[RawDeployment mode has limited support – Red Hat Documentation](https://access.redhat.com)
