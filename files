@@ -1,0 +1,57 @@
+
+# OpenShift Service Mesh and KServe Integration Guide
+
+## Overview
+
+This guide documents the behavior of OpenShift Routes when a namespace is added to OpenShift Service Mesh, and provides guidance for deploying KServe using RawDeployment mode as an alternative to the default Knative/Istio-based setup.
+
+## Service Mesh Behavior with OpenShift Routes
+
+When a namespace is included in the `ServiceMeshMemberRoll`, Istio sidecar injection is automatically enabled for all pods in that namespace. This introduces changes in how network traffic is handled:
+
+- All external traffic is routed through the Istio Ingress Gateway.
+- OpenShift `Route` objects that previously pointed directly to services in the namespace no longer function.
+- Native OpenShift TLS (mTLS) and Ingress configurations are bypassed.
+
+As a result, existing OpenShift Routes and LoadBalancer services will stop working as expected once the namespace joins the mesh.
+
+For production environments where OpenShift Routes and ingress configurations are required, namespaces should not be part of the Service Mesh unless Istio Ingress Gateway routing is explicitly desired.
+
+Reference:
+- [Red Hat OpenShift AI Docs – Configuring RawDeployment Mode](https://access.redhat.com/documentation/en-us/red_hat_openshift_ai/2.5/html-single/deploying_and_managing_models_with_kserve/index#proc_configuring-rawdeployment-mode_odh-serving)
+
+## Deploying KServe Without Istio and Knative
+
+By default, KServe relies on Knative Serving for autoscaling and canary deployments, and on Istio for routing and mTLS. However, in scenarios where integration with OpenShift Routes is required, KServe can be configured to use **RawDeployment mode**.
+
+### Key Benefits of RawDeployment Mode
+
+- Does not require Knative or Istio.
+- Allows continued use of OpenShift Routes and standard Kubernetes Services.
+- Operates with standard Kubernetes objects like Deployment, Service, Ingress, and HorizontalPodAutoscaler.
+
+References:
+- [KServe Documentation – RawDeployment Overview](https://kserve.github.io/website/modelserving/rawdeployment/)
+- [Red Hat Docs – RawDeployment Setup](https://access.redhat.com/documentation/en-us/red_hat_openshift_ai/2.5/html-single/deploying_and_managing_models_with_kserve/index#proc_configuring-rawdeployment-mode_odh-serving)
+
+## Limitations of RawDeployment Mode
+
+When operating KServe in RawDeployment mode, several advanced features available in the Knative/Istio configuration are not supported:
+
+| Feature                          | RawDeployment | Knative/Istio |
+|----------------------------------|----------------|----------------|
+| OpenShift Route compatibility    | Yes            | No             |
+| Istio VirtualServices            | No             | Yes            |
+| Scale-to-zero support            | No             | Yes            |
+| Request-based autoscaling        | No             | Yes            |
+| Canary deployments               | No             | Yes            |
+| Built-in mTLS                    | Manual          | Yes            |
+| Advanced routing (retries etc.)  | No             | Yes            |
+
+Additional references:
+- [KServe GitHub – RawDeployment Features](https://github.com/kserve/kserve/blob/master/docs/modelserving/rawdeployment.md)
+- [KServe GitHub – Canary Deployment Requirements](https://github.com/kserve/kserve/blob/master/docs/modelserving/canary.md#requirements)
+
+## Summary
+
+Namespaces added to OpenShift Service Mesh will no longer support native OpenShift Routes to services due to Istio sidecar interception. This affects existing ingress and TLS configurations. For environments that depend on OpenShift-native routing, KServe should be deployed using RawDeployment mode to avoid Istio and Knative dependencies. While this simplifies deployment, some advanced serverless and traffic management features will be unavailable.
