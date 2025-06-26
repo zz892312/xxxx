@@ -1,0 +1,32 @@
+graph TD
+    A[OpenShift Cluster] --> B[Service Mesh Control Plane]
+    A --> C[Run:AI Scheduler]
+    B --> D[Inference Namespace]
+    C --> D
+    D --> E[KServe Pod with GPU]
+    E --> F[Istio Sidecar]
+    D --> G[Working OpenShift Route]
+    style D fill:#e6f7ff,stroke:#333
+
+
+
+graph LR
+    A[OpenShift Cluster] --> B[Service Mesh Namespaces]
+    A --> C[Non-Mesh Namespaces]
+    C --> D[Inference Namespace]
+    D --> E[Working OpenShift Routes]
+    D --> F[GPU Workloads]
+    D --> G[Run:AI Scheduler]
+    style C stroke:#00cc00,stroke-width:4px
+    style D fill:#e6f7ff,stroke:#333
+
+
+ router.openshift.io/disable-mesh: "true"
+
+graph TD
+    A[OpenShift Router] --> B{Is namespace in ServiceMeshMemberRoll?}
+    B -->|Yes| C[Route traffic to Istio IngressGateway]
+    B -->|No| D[Route directly to Service]
+    C --> E{Does VirtualService exist?}
+    E -->|Yes| F[Traffic routed to Service]
+    E -->|No| G[404 Not Found]
