@@ -1,32 +1,37 @@
-graph TD
-    A[OpenShift Cluster] --> B[Service Mesh Control Plane]
-    A --> C[Run:AI Scheduler]
-    B --> D[Inference Namespace]
-    C --> D
-    D --> E[KServe Pod with GPU]
-    E --> F[Istio Sidecar]
-    D --> G[Working OpenShift Route]
-    style D fill:#e6f7ff,stroke:#333
+Use the Service Mesh system and enable KServe serverless mode at the app-code-level namespace.
+The inference namespaces are limited to just non-prod and prod.
+This setup could allow us to natively support scale-to-zero for inference services without needing any additional implementation.
 
-
-
-graph LR
-    A[OpenShift Cluster] --> B[Service Mesh Namespaces]
-    A --> C[Non-Mesh Namespaces]
-    C --> D[Inference Namespace]
-    D --> E[Working OpenShift Routes]
-    D --> F[GPU Workloads]
-    D --> G[Run:AI Scheduler]
-    style C stroke:#00cc00,stroke-width:4px
-    style D fill:#e6f7ff,stroke:#333
-
-
- router.openshift.io/disable-mesh: "true"
 
 graph TD
-    A[OpenShift Router] --> B{Is namespace in ServiceMeshMemberRoll?}
-    B -->|Yes| C[Route traffic to Istio IngressGateway]
-    B -->|No| D[Route directly to Service]
-    C --> E{Does VirtualService exist?}
-    E -->|Yes| F[Traffic routed to Service]
-    E -->|No| G[404 Not Found]
+    subgraph Non-Prod Cluster
+        subgraph app_code_1
+            A1[Dev] --> I
+            B1[QA] --> I
+            C1[UAT] --> I
+        end
+        I[Inference Namespace<br>KServe Serverless]
+    end
+    External -- MTLS --> Auth[Auth Server]
+    Auth -->|Auth Token| B1
+    B1 --> I
+
+Use RawDeployment mode with no additional namespace setup.
+Inference services are deployed alongside the application as part of the promotion process — either directly from dev/qa/uat to prod, depending on the team’s choice.
+The research workflow is restricted to using only the -dev namespace.
+
+
+flowchart TD
+ subgraph s1["app_code_1-dev"]
+        A1["App Service"]
+        I1["KServe RawDeployment Pod"]
+  end
+ subgraph subGraph1["Non-Prod Cluster"]
+        s1
+  end
+    A1 --> I1
+    Route["OpenShift Route - with mTLS"] --> A1 & I1
+    External["External Client"] -- mTLS --> Route
+
+
+
