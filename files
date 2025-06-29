@@ -1,66 +1,493 @@
-Slide 1: Opening
-Title: Opening
+# KServe Configuration Files
 
-Script:
+This document provides comprehensive configuration file templates for the KServe Template Generator. You can use these files to define all parameters and load them into the system.
 
-"Good morning, everyone! Today, I’ll walk you through our findings on deploying machine learning models with KServe on OpenShift. We’ll cover what KServe is, why we’re using it, and how we’ve decided to deploy it—starting with a phased approach using RawDeployment mode."
+## Configuration File Formats
 
-Slide 2: KServe in 60 Seconds
-Visual: Diagram — Models → KServe → Predictions
+### 1. Complete YAML Configuration (`kserve-config.yaml`)
 
-Script:
+```yaml
+# KServe InferenceService Configuration
+metadata:
+  name: "llama-2-7b-chat"
+  namespace: "ml-inference"
+  
+# Storage configuration
+storage:
+  uri: "s3://ml-models/llama-2-7b-chat/v1.0/"
+  
+# Framework and runtime settings
+runtime:
+  framework: "triton"  # triton
+  type: "cluster"      # builtin, cluster, custom
+  deployment_mode: "Knative"  # Knative, RawDeployment
+  protocol_version: "v1"
+  
+  # Cluster runtime specific settings
+  cluster_runtime:
+    runtime_name: "triton-server"
+    runtime_version: "2.29.0"
+    model_format: "tensorrt_llm"
+    protocol_version: "v1"
+  
+  # Custom image (only for custom runtime type)
+  custom_image: "my-registry/custom-triton:latest"
 
-"Let’s start with the basics—what is KServe?
-KServe is an open-source platform for serving machine learning models at scale, built on Kubernetes.
-Think of it as a smart waiter for your models: it receives prediction requests, forwards them to your model, and returns the results quickly and reliably."
+# Resource configuration
+resources:
+  cpu_request: "2"
+  memory_request: "4Gi"
+  cpu_limit: "4"
+  memory_limit: "8Gi"
+  gpu_limit: "1"
 
-Slide 3: Core Capabilities & Analogy
-Visual: Bulleted list of features
-Script:
+# Scaling configuration
+scaling:
+  min_replicas: 1
+  max_replicas: 5
+  scale_target: 70
+  scale_metric: "concurrency"
 
-"KServe works with many model formats like PyTorch, TensorFlow, and ONNX.
-It can scale automatically based on traffic, provide built-in monitoring and security, and standardize model deployment workflows.
-If your ML model is a chef creating predictions, KServe is the restaurant operation:
-It manages the kitchen (autoscaling), takes orders (API calls), ensures food safety (security), and monitors customer satisfaction (metrics)."
+# Environment variables
+environment:
+  MODEL_NAME: "llama-2-7b-chat"
+  MAX_BATCH_SIZE: "32"
+  TRITON_LOG_VERBOSE: "1"
+  CUDA_VISIBLE_DEVICES: "0"
 
-Slide 4: Why KServe Instead of DIY
-Visual: Table comparing KServe vs. Custom Solutions
-Script:
+# Kubernetes specific settings
+kubernetes:
+  service_account: "kserve-sa"
+  node_selector:
+    gpu-type: "nvidia-a100"
+    zone: "us-west-2a"
+  tolerations:
+    - key: "nvidia.com/gpu"
+      operator: "Equal"
+      value: "present"
+      effect: "NoSchedule"
 
-"Before KServe, each team built its own model serving stack.
-Team A might’ve used Flask and Docker, Team B used FastAPI, Team C had something totally custom.
-That created fragmentation, made scaling difficult, and observability inconsistent."
+# Metadata
+annotations:
+  "serving.kserve.io/enable-prometheus-scraping": "true"
+  "serving.kserve.io/enable-metric-aggregation": "true"
+  "autoscaling.knative.dev/target": "70"
 
-Slide 5: POC Validation
-Visual: POC results with checkmarks
-Script:
+labels:
+  app: "llama-inference"
+  version: "v1.0"
+  team: "ml-platform"
 
-"In our proof-of-concept, we validated several key features:
+# Advanced configurations
+advanced:
+  canary_traffic_percent: 10
+  
+  # Transformer configuration
+  transformer:
+    image: "my-registry/text-transformer:v1.0"
+    env:
+      TOKENIZER_PATH: "/models/tokenizer"
+      MAX_SEQUENCE_LENGTH: "2048"
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "1"
+        memory: "2Gi"
+  
+  # Explainer configuration  
+  explainer:
+    image: "my-registry/model-explainer:v1.0"
+    env:
+      EXPLAIN_TYPE: "shap"
+      BASELINE_URI: "s3://ml-models/baselines/"
+    resources:
+      requests:
+        cpu: "200m"
+        memory: "512Mi"
+      limits:
+        cpu: "500m" 
+        memory: "1Gi"
+```
 
-Prometheus metrics were auto-instrumented with a single annotation
+### 2. Minimal YAML Configuration (`kserve-minimal.yaml`)
 
-Internal mTLS worked out of the box via OpenShift Service Mesh
+```yaml
+# Minimal KServe Configuration
+metadata:
+  name: "simple-model"
+  namespace: "default"
 
-RBAC was fine-grained using Kubernetes service accounts
-But we also uncovered a critical infrastructure issue..."
+storage:
+  uri: "s3://my-bucket/models/simple-model/"
 
-Slide 6: Why We're Avoiding Istio (For Now)
-Visual: Diagram showing OpenShift native networking vs. Istio overlay
-Script:
+runtime:
+  framework: "triton"
+  type: "cluster"
+  cluster_runtime:
+    runtime_name: "triton-server"
 
-"KServe’s default serverless mode requires Istio, but that’s a risk for us right now.
-If we enable Istio fully, it would take over our OpenShift Routes, DNS, and load balancing—forcing us to retest and rebuild everything.
-Plus, the overhead of managing Istio is non-trivial—over 50 CRDs, version drift, and complexity for legacy apps."
+resources:
+  cpu_request: "100m"
+  memory_request: "512Mi"
+  cpu_limit: "1"
+  memory_limit: "2Gi"
 
-Slide 7: What We Learned About KServe
-Visual: Side-by-side comparison of Serverless vs. RawDeployment mode
-Script:
+scaling:
+  min_replicas: 1
+  max_replicas: 3
+```
 
-"We evaluated both KServe deployment modes:
+### 3. Complete JSON Configuration (`kserve-config.json`)
 
-Serverless Mode uses Knative and Istio to offer scale-to-zero and advanced routing, but at the cost of extra resource usage and operational complexity.
+```json
+{
+  "metadata": {
+    "name": "bert-classifier",
+    "namespace": "nlp-services"
+  },
+  "storage": {
+    "uri": "gs://ml-models/bert-base-uncased/classification/"
+  },
+  "runtime": {
+    "framework": "triton",
+    "type": "cluster",
+    "deployment_mode": "Knative",
+    "protocol_version": "v1",
+    "cluster_runtime": {
+      "runtime_name": "triton-server",
+      "runtime_version": "2.29.0",
+      "model_format": "onnx",
+      "protocol_version": "v1"
+    }
+  },
+  "resources": {
+    "cpu_request": "500m",
+    "memory_request": "1Gi", 
+    "cpu_limit": "2",
+    "memory_limit": "4Gi",
+    "gpu_limit": null
+  },
+  "scaling": {
+    "min_replicas": 2,
+    "max_replicas": 10,
+    "scale_target": 80,
+    "scale_metric": "concurrency"
+  },
+  "environment": {
+    "MODEL_NAME": "bert-classifier",
+    "MAX_BATCH_SIZE": "16",
+    "SEQUENCE_LENGTH": "512"
+  },
+  "kubernetes": {
+    "service_account": "bert-service-account",
+    "node_selector": {
+      "workload-type": "ml-inference"
+    },
+    "tolerations": []
+  },
+  "annotations": {
+    "serving.kserve.io/enable-prometheus-scraping": "true"
+  },
+  "labels": {
+    "app": "bert-classifier",
+    "version": "v2.1"
+  },
+  "advanced": {
+    "canary_traffic_percent": null,
+    "transformer": null,
+    "explainer": null
+  }
+}
+```
 
-Raw Deployment Mode lets us avoid Istio and Knative, use standard OpenShift networking, and scale with Kubernetes HPA.
+### 4. GPU-Optimized Configuration (`gpu-model-config.yaml`)
 
-Because of that, we’re starting with RawDeployment as our baseline—it’s simpler, predictable, and integrates cleanly with OpenShift."
+```yaml
+metadata:
+  name: "stable-diffusion-xl"
+  namespace: "image-generation"
 
+storage:
+  uri: "s3://ai-models/stable-diffusion-xl/v1.0/"
+
+runtime:
+  framework: "triton"
+  type: "cluster"
+  deployment_mode: "RawDeployment"
+  cluster_runtime:
+    runtime_name: "triton-server-gpu"
+    runtime_version: "2.29.0"
+    model_format: "pytorch_libtorch"
+
+resources:
+  cpu_request: "4"
+  memory_request: "16Gi"
+  cpu_limit: "8"
+  memory_limit: "32Gi"
+  gpu_limit: "2"
+
+scaling:
+  min_replicas: 1
+  max_replicas: 3
+  scale_target: 1
+  scale_metric: "concurrency"
+
+environment:
+  CUDA_VISIBLE_DEVICES: "0,1"
+  TRITON_LOG_VERBOSE: "1"
+  MODEL_INSTANCE_COUNT: "2"
+  BATCH_SIZE: "1"
+
+kubernetes:
+  node_selector:
+    accelerator: "nvidia-tesla-v100"
+  tolerations:
+    - key: "nvidia.com/gpu"
+      operator: "Equal"
+      value: "present"
+      effect: "NoSchedule"
+
+annotations:
+  "serving.kserve.io/deploymentMode": "RawDeployment"
+  "autoscaling.knative.dev/target-utilization-percentage": "70"
+```
+
+### 5. Multi-Model Configuration (`multi-model-config.yaml`)
+
+```yaml
+metadata:
+  name: "ensemble-classifier"
+  namespace: "ml-ensemble"
+
+storage:
+  uri: "s3://ml-models/ensemble/classifier-v2/"
+
+runtime:
+  framework: "triton"
+  type: "cluster"
+  cluster_runtime:
+    runtime_name: "triton-server"
+    model_format: "ensemble"
+
+resources:
+  cpu_request: "1"
+  memory_request: "2Gi"
+  cpu_limit: "4"
+  memory_limit: "8Gi"
+
+scaling:
+  min_replicas: 2
+  max_replicas: 8
+  scale_target: 60
+
+environment:
+  TRITON_MODEL_REPOSITORY: "/models"
+  TRITON_STRICT_MODEL_CONFIG: "false"
+  TRITON_LOG_VERBOSE: "1"
+
+advanced:
+  transformer:
+    image: "my-registry/preprocessing:v1.2"
+    env:
+      PREPROCESS_TYPE: "ensemble"
+      FEATURE_COLUMNS: "text,metadata"
+    resources:
+      requests:
+        cpu: "200m"
+        memory: "512Mi"
+      limits:
+        cpu: "500m"
+        memory: "1Gi"
+```
+
+## Configuration File Usage
+
+### Python Code to Load Configuration
+
+```python
+import yaml
+import json
+from pathlib import Path
+from typing import Dict, Any, Union
+
+def load_config_file(config_path: Union[str, Path]) -> Dict[str, Any]:
+    """Load configuration from YAML or JSON file"""
+    config_path = Path(config_path)
+    
+    if not config_path.exists():
+        raise FileNotFoundError(f"Configuration file not found: {config_path}")
+    
+    with open(config_path, 'r') as f:
+        if config_path.suffix.lower() in ['.yaml', '.yml']:
+            return yaml.safe_load(f)
+        elif config_path.suffix.lower() == '.json':
+            return json.load(f)
+        else:
+            raise ValueError(f"Unsupported file format: {config_path.suffix}")
+
+def config_to_inference_service(config_dict: Dict[str, Any]) -> InferenceServiceConfig:
+    """Convert configuration dictionary to InferenceServiceConfig"""
+    
+    # Extract basic metadata
+    metadata = config_dict.get('metadata', {})
+    storage = config_dict.get('storage', {})
+    runtime = config_dict.get('runtime', {})
+    resources_dict = config_dict.get('resources', {})
+    scaling_dict = config_dict.get('scaling', {})
+    kubernetes = config_dict.get('kubernetes', {})
+    advanced = config_dict.get('advanced', {})
+    
+    # Create resource configuration
+    resources = ResourceConfig(
+        cpu_request=resources_dict.get('cpu_request', '100m'),
+        memory_request=resources_dict.get('memory_request', '512Mi'),
+        cpu_limit=resources_dict.get('cpu_limit', '1'),
+        memory_limit=resources_dict.get('memory_limit', '2Gi'),
+        gpu_limit=resources_dict.get('gpu_limit')
+    )
+    
+    # Create scaling configuration
+    scaling = ScalingConfig(
+        min_replicas=scaling_dict.get('min_replicas', 1),
+        max_replicas=scaling_dict.get('max_replicas', 3),
+        scale_target=scaling_dict.get('scale_target'),
+        scale_metric=scaling_dict.get('scale_metric', 'concurrency')
+    )
+    
+    # Create cluster runtime configuration if specified
+    cluster_runtime = None
+    if runtime.get('type') == 'cluster' and 'cluster_runtime' in runtime:
+        cr = runtime['cluster_runtime']
+        cluster_runtime = ClusterServingRuntimeConfig(
+            runtime_name=cr.get('runtime_name', 'triton-server'),
+            runtime_version=cr.get('runtime_version'),
+            protocol_version=cr.get('protocol_version', 'v1'),
+            model_format=cr.get('model_format')
+        )
+    
+    # Create main configuration
+    inference_config = InferenceServiceConfig(
+        name=metadata.get('name', 'default-service'),
+        storage_uri=storage.get('uri', ''),
+        namespace=metadata.get('namespace', 'default'),
+        framework=Framework(runtime.get('framework', 'triton')),
+        deployment_mode=DeploymentMode(runtime.get('deployment_mode', 'Knative')),
+        runtime_type=RuntimeType(runtime.get('type', 'cluster')),
+        cluster_runtime=cluster_runtime,
+        protocol_version=runtime.get('protocol_version', 'v1'),
+        custom_image=runtime.get('custom_image'),
+        env_vars=config_dict.get('environment'),
+        resources=resources,
+        scaling=scaling,
+        annotations=config_dict.get('annotations'),
+        labels=config_dict.get('labels'),
+        service_account=kubernetes.get('service_account'),
+        node_selector=kubernetes.get('node_selector'),
+        tolerations=kubernetes.get('tolerations'),
+        canary_traffic_percent=advanced.get('canary_traffic_percent'),
+        transformer_config=advanced.get('transformer'),
+        explainer_config=advanced.get('explainer')
+    )
+    
+    return inference_config
+
+# Usage example
+def main_with_config():
+    """Main function using configuration file"""
+    
+    # Load configuration
+    config_dict = load_config_file('kserve-config.yaml')
+    
+    # Convert to InferenceServiceConfig
+    inference_config = config_to_inference_service(config_dict)
+    
+    # Create client and generate template
+    client = KServeTemplatingClient()
+    
+    # Generate template
+    yaml_output = client.render_inference_service_yaml(inference_config)
+    print(yaml_output)
+    
+    # Save to file
+    filepath = client.save_template_to_file(inference_config)
+    print(f"Template saved to: {filepath}")
+    
+    # Validate
+    validation = client.validate_template(inference_config)
+    if validation['valid']:
+        print("✅ Template validation passed")
+    else:
+        print("❌ Template validation failed:")
+        for error in validation['errors']:
+            print(f"  - {error}")
+
+if __name__ == "__main__":
+    main_with_config()
+```
+
+## CLI Usage with Configuration Files
+
+```bash
+# Basic usage with config file
+python kserve_templating.py --config kserve-config.yaml
+
+# Override specific parameters
+python kserve_templating.py --config kserve-config.yaml --namespace production --min-replicas 3
+
+# Use JSON config
+python kserve_templating.py --config kserve-config.json --output-dir ./production-templates
+```
+
+## Configuration Validation Schema
+
+```yaml
+# schema.yaml - JSON Schema for validation
+$schema: "http://json-schema.org/draft-07/schema#"
+type: object
+required: ["metadata", "storage", "runtime"]
+properties:
+  metadata:
+    type: object
+    required: ["name"]
+    properties:
+      name: 
+        type: string
+        pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+      namespace:
+        type: string
+        default: "default"
+  
+  storage:
+    type: object
+    required: ["uri"]
+    properties:
+      uri:
+        type: string
+        pattern: "^(s3://|gs://|hdfs://|file://|pvc://)"
+  
+  runtime:
+    type: object
+    properties:
+      framework:
+        type: string
+        enum: ["triton"]
+      type:
+        type: string
+        enum: ["builtin", "cluster", "custom"]
+      deployment_mode:
+        type: string
+        enum: ["Knative", "RawDeployment"]
+  
+  resources:
+    type: object
+    properties:
+      cpu_request: { type: string }
+      memory_request: { type: string }
+      cpu_limit: { type: string }
+      memory_limit: { type: string }
+      gpu_limit: { type: ["string", "null"] }
+```
+
+These configuration files provide a comprehensive way to define all KServe parameters in a structured, reusable format. You can customize them based on your specific model serving requirements and load them programmatically into the KServe template generator.
