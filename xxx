@@ -10,27 +10,17 @@ from kserve import KServeClient
 from kserve import V1beta1InferenceService
 from kserve import V1beta1InferenceServiceSpec
 from kserve import V1beta1PredictorSpec
-from kserve import V1beta1SKLearnSpec
-from kserve import V1beta1TensorflowSpec
-from kserve import V1beta1PyTorchSpec
-from kserve import V1beta1XGBoostSpec
-from kserve import V1beta1LightGBMSpec
 from enum import Enum
 import argparse
 from datetime import datetime
+import jsonschema
 
 class DeploymentMode(Enum):
     KNATIVE = "Knative"
     RAW_DEPLOYMENT = "RawDeployment"
 
 class Framework(Enum):
-    SKLEARN = "sklearn"
-    TENSORFLOW = "tensorflow"
-    PYTORCH = "pytorch"
-    XGBOOST = "xgboost"
-    LIGHTGBM = "lightgbm"
-    CUSTOM = "custom"
-    HUGGINGFACE = "huggingface"
+    TRITON = "triton"
 
 class RuntimeType(Enum):
     BUILTIN = "builtin"  # Use built-in serving runtime
@@ -65,7 +55,7 @@ class InferenceServiceConfig:
     name: str
     storage_uri: str  # Now required as input
     namespace: str = "default"
-    framework: Framework = Framework.SKLEARN
+    framework: Framework = Framework.TRITON
     deployment_mode: DeploymentMode = DeploymentMode.KNATIVE
     runtime_type: RuntimeType = RuntimeType.CLUSTER
     cluster_runtime: Optional[ClusterServingRuntimeConfig] = None
@@ -97,18 +87,158 @@ class InferenceServiceConfig:
         
         # Set default cluster runtime if using cluster runtime type
         if self.runtime_type == RuntimeType.CLUSTER and self.cluster_runtime is None:
-            runtime_name_map = {
-                Framework.SKLEARN: "sklearn-server",
-                Framework.TENSORFLOW: "tensorflow-serving",
-                Framework.PYTORCH: "pytorch-server",
-                Framework.XGBOOST: "xgboost-server",
-                Framework.LIGHTGBM: "lightgbm-server",
-                Framework.HUGGINGFACE: "huggingface-server"
-            }
             self.cluster_runtime = ClusterServingRuntimeConfig(
-                runtime_name=runtime_name_map.get(self.framework, f"{self.framework.value}-server"),
+                runtime_name="triton-server",
                 protocol_version=self.protocol_version
             )
+
+class ConfigLoader:
+    """Configuration file loader with validation"""
+    
+    # JSON Schema for configuration validation
+    CONFIG_SCHEMA = {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["metadata", "storage", "runtime"],
+        "properties": {
+            "metadata": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                    },
+                    "namespace": {
+                        "type": "string",
+                        "default": "default"
+                    }
+                }
+            },
+            "storage": {
+                "type": "object",
+                "required": ["uri"],
+                "properties": {
+                    "uri": {
+                        "type": "string"
+                    }
+                }
+            },
+            "runtime": {
+                "type": "object",
+                "properties": {
+                    "framework": {
+                        "type": "string",
+                        "enum": ["triton"]
+                    },
+                    "type": {
+                        "type": "string",
+                        "enum": ["builtin", "cluster", "custom"]
+                    },
+                    "deployment_mode": {
+                        "type": "string",
+                        "enum": ["Knative", "RawDeployment"]
+                    }
+                }
+            }
+        }
+    }
+    
+    @staticmethod
+    def load_config_file(config_path: Union[str, Path]) -> Dict[str, Any]:
+        """Load configuration from YAML or JSON file"""
+        config_path = Path(config_path)
+        
+        if not config_path.exists():
+            raise FileNotFoundError(f"Configuration file not found: {config_path}")
+        
+        with open(config_path, 'r') as f:
+            if config_path.suffix.lower() in ['.yaml', '.yml']:
+                config_dict = yaml.safe_load(f)
+            elif config_path.suffix.lower() == '.json':
+                config_dict = json.load(f)
+            else:
+                raise ValueError(f"Unsupported file format: {config_path.suffix}")
+        
+        return config_dict or {}
+    
+    @staticmethod
+    def validate_config(config_dict: Dict[str, Any]) -> None:
+        """Validate configuration against schema"""
+        try:
+            jsonschema.validate(config_dict, ConfigLoader.CONFIG_SCHEMA)
+        except jsonschema.ValidationError as e:
+            raise ValueError(f"Configuration validation failed: {e.message}")
+    
+    @staticmethod
+    def config_to_inference_service(config_dict: Dict[str, Any]) -> InferenceServiceConfig:
+        """Convert configuration dictionary to InferenceServiceConfig"""
+        
+        # Validate configuration
+        ConfigLoader.validate_config(config_dict)
+        
+        # Extract configuration sections
+        metadata = config_dict.get('metadata', {})
+        storage = config_dict.get('storage', {})
+        runtime = config_dict.get('runtime', {})
+        resources_dict = config_dict.get('resources', {})
+        scaling_dict = config_dict.get('scaling', {})
+        kubernetes = config_dict.get('kubernetes', {})
+        advanced = config_dict.get('advanced', {})
+        
+        # Create resource configuration
+        resources = ResourceConfig(
+            cpu_request=resources_dict.get('cpu_request', '100m'),
+            memory_request=resources_dict.get('memory_request', '512Mi'),
+            cpu_limit=resources_dict.get('cpu_limit', '1'),
+            memory_limit=resources_dict.get('memory_limit', '2Gi'),
+            gpu_limit=resources_dict.get('gpu_limit')
+        )
+        
+        # Create scaling configuration
+        scaling = ScalingConfig(
+            min_replicas=scaling_dict.get('min_replicas', 1),
+            max_replicas=scaling_dict.get('max_replicas', 3),
+            scale_target=scaling_dict.get('scale_target'),
+            scale_metric=scaling_dict.get('scale_metric', 'concurrency')
+        )
+        
+        # Create cluster runtime configuration if specified
+        cluster_runtime = None
+        if runtime.get('type') == 'cluster' and 'cluster_runtime' in runtime:
+            cr = runtime['cluster_runtime']
+            cluster_runtime = ClusterServingRuntimeConfig(
+                runtime_name=cr.get('runtime_name', 'triton-server'),
+                runtime_version=cr.get('runtime_version'),
+                protocol_version=cr.get('protocol_version', 'v1'),
+                model_format=cr.get('model_format')
+            )
+        
+        # Create main configuration
+        inference_config = InferenceServiceConfig(
+            name=metadata.get('name', 'default-service'),
+            storage_uri=storage.get('uri', ''),
+            namespace=metadata.get('namespace', 'default'),
+            framework=Framework(runtime.get('framework', 'triton')),
+            deployment_mode=DeploymentMode(runtime.get('deployment_mode', 'Knative')),
+            runtime_type=RuntimeType(runtime.get('type', 'cluster')),
+            cluster_runtime=cluster_runtime,
+            protocol_version=runtime.get('protocol_version', 'v1'),
+            custom_image=runtime.get('custom_image'),
+            env_vars=config_dict.get('environment'),
+            resources=resources,
+            scaling=scaling,
+            annotations=config_dict.get('annotations'),
+            labels=config_dict.get('labels'),
+            service_account=kubernetes.get('service_account'),
+            node_selector=kubernetes.get('node_selector'),
+            tolerations=kubernetes.get('tolerations'),
+            canary_traffic_percent=advanced.get('canary_traffic_percent'),
+            transformer_config=advanced.get('transformer'),
+            explainer_config=advanced.get('explainer')
+        )
+        
+        return inference_config
 
 class KServeTemplatingClient:
     def __init__(self, namespace: str = "default", output_dir: Optional[str] = None):
@@ -136,69 +266,6 @@ kind: InferenceService
 metadata:
   name: {{ config.name }}
   namespace: {{ config.namespace }}
-  {% if annotations %}
-  annotations:
-    {% for key, value in annotations.items() %}
-    {{ key }}: "{{ value }}"
-    {% endfor %}
-  {% endif %}
-  {% if labels %}
-  labels:
-    {% for key, value in labels.items() %}
-    {{ key }}: "{{ value }}"
-    {% endfor %}
-  {% endif %}
-spec:
-  {% if config.service_account %}
-  serviceAccountName: {{ config.service_account }}
-  {% endif %}
-  predictor:
-    {% if config.scaling.min_replicas %}
-    minReplicas: {{ config.scaling.min_replicas }}
-    {% endif %}
-    {% if config.scaling.max_replicas %}
-    maxReplicas: {{ config.scaling.max_replicas }}
-    {% endif %}
-    {% if config.scaling.scale_target %}
-    scaleTarget: {{ config.scaling.scale_target }}
-    {% endif %}
-    {% if config.scaling.scale_metric %}
-    scaleMetric: {{ config.scaling.scale_metric }}
-    {% endif %}
-    {% if config.node_selector %}
-    nodeSelector:
-      {% for key, value in config.node_selector.items() %}
-      {{ key }}: "{{ value }}"
-      {% endfor %}
-    {% endif %}
-    {% if config.tolerations %}
-    tolerations:
-      {% for toleration in config.tolerations %}
-      - {{ toleration | tojson }}
-      {% endfor %}
-    {% endif %}
-    {{ framework_spec | indent(4, true) }}
-  {% if transformer_spec %}
-  transformer:
-    {{ transformer_spec | indent(4, true) }}
-  {% endif %}
-  {% if explainer_spec %}
-  explainer:
-    {{ explainer_spec | indent(4, true) }}
-  {% endif %}
-""",
-            'cluster_runtime_spec': """
-model:
-  modelFormat:
-    name: {{ model_format or config.framework.value }}
-    {% if config.cluster_runtime.runtime_version %}
-    version: {{ config.cluster_runtime.runtime_version }}
-    {% endif %}
-  runtime: {{ config.cluster_runtime.runtime_name }}
-  storageUri: {{ config.storage_uri }}
-  {% if config.protocol_version %}
-  protocolVersion: {{ config.protocol_version }}
-  {% endif %}
   {% if resources %}
   resources:
     requests:
@@ -210,184 +277,6 @@ model:
       {% if config.resources.gpu_limit %}
       nvidia.com/gpu: {{ config.resources.gpu_limit }}
       {% endif %}
-  {% endif %}
-  {% if env_vars %}
-  env:
-    {% for key, value in env_vars.items() %}
-    - name: {{ key }}
-      value: "{{ value }}"
-    {% endfor %}
-  {% endif %}
-""",
-            'sklearn_spec': """
-sklearn:
-  storageUri: {{ config.storage_uri }}
-  protocolVersion: {{ config.protocol_version }}
-  {% if resources %}
-  resources:
-    requests:
-      cpu: {{ config.resources.cpu_request }}
-      memory: {{ config.resources.memory_request }}
-    limits:
-      cpu: {{ config.resources.cpu_limit }}
-      memory: {{ config.resources.memory_limit }}
-      {% if config.resources.gpu_limit %}
-      nvidia.com/gpu: {{ config.resources.gpu_limit }}
-      {% endif %}
-  {% endif %}
-  {% if env_vars %}
-  env:
-    {% for key, value in env_vars.items() %}
-    - name: {{ key }}
-      value: "{{ value }}"
-    {% endfor %}
-  {% endif %}
-""",
-            'tensorflow_spec': """
-tensorflow:
-  storageUri: {{ config.storage_uri }}
-  protocolVersion: {{ config.protocol_version }}
-  {% if resources %}
-  resources:
-    requests:
-      cpu: {{ config.resources.cpu_request }}
-      memory: {{ config.resources.memory_request }}
-    limits:
-      cpu: {{ config.resources.cpu_limit }}
-      memory: {{ config.resources.memory_limit }}
-      {% if config.resources.gpu_limit %}
-      nvidia.com/gpu: {{ config.resources.gpu_limit }}
-      {% endif %}
-  {% endif %}
-  {% if env_vars %}
-  env:
-    {% for key, value in env_vars.items() %}
-    - name: {{ key }}
-      value: "{{ value }}"
-    {% endfor %}
-  {% endif %}
-""",
-            'pytorch_spec': """
-pytorch:
-  storageUri: {{ config.storage_uri }}
-  protocolVersion: {{ config.protocol_version }}
-  {% if resources %}
-  resources:
-    requests:
-      cpu: {{ config.resources.cpu_request }}
-      memory: {{ config.resources.memory_request }}
-    limits:
-      cpu: {{ config.resources.cpu_limit }}
-      memory: {{ config.resources.memory_limit }}
-      {% if config.resources.gpu_limit %}
-      nvidia.com/gpu: {{ config.resources.gpu_limit }}
-      {% endif %}
-  {% endif %}
-  {% if env_vars %}
-  env:
-    {% for key, value in env_vars.items() %}
-    - name: {{ key }}
-      value: "{{ value }}"
-    {% endfor %}
-  {% endif %}
-""",
-            'xgboost_spec': """
-xgboost:
-  storageUri: {{ config.storage_uri }}
-  protocolVersion: {{ config.protocol_version }}
-  {% if resources %}
-  resources:
-    requests:
-      cpu: {{ config.resources.cpu_request }}
-      memory: {{ config.resources.memory_request }}
-    limits:
-      cpu: {{ config.resources.cpu_limit }}
-      memory: {{ config.resources.memory_limit }}
-      {% if config.resources.gpu_limit %}
-      nvidia.com/gpu: {{ config.resources.gpu_limit }}
-      {% endif %}
-  {% endif %}
-  {% if env_vars %}
-  env:
-    {% for key, value in env_vars.items() %}
-    - name: {{ key }}
-      value: "{{ value }}"
-    {% endfor %}
-  {% endif %}
-""",
-            'lightgbm_spec': """
-lightgbm:
-  storageUri: {{ config.storage_uri }}
-  protocolVersion: {{ config.protocol_version }}
-  {% if resources %}
-  resources:
-    requests:
-      cpu: {{ config.resources.cpu_request }}
-      memory: {{ config.resources.memory_request }}
-    limits:
-      cpu: {{ config.resources.cpu_limit }}
-      memory: {{ config.resources.memory_limit }}
-      {% if config.resources.gpu_limit %}
-      nvidia.com/gpu: {{ config.resources.gpu_limit }}
-      {% endif %}
-  {% endif %}
-  {% if env_vars %}
-  env:
-    {% for key, value in env_vars.items() %}
-    - name: {{ key }}
-      value: "{{ value }}"
-    {% endfor %}
-  {% endif %}
-""",
-            'custom_spec': """
-containers:
-- name: kserve-container
-  image: {{ config.custom_image }}
-  {% if env_vars %}
-  env:
-    {% for key, value in env_vars.items() %}
-    - name: {{ key }}
-      value: "{{ value }}"
-    {% endfor %}
-    {% if config.storage_uri %}
-    - name: STORAGE_URI
-      value: {{ config.storage_uri }}
-    {% endif %}
-  {% endif %}
-  {% if resources %}
-  resources:
-    requests:
-      cpu: {{ config.resources.cpu_request }}
-      memory: {{ config.resources.memory_request }}
-    limits:
-      cpu: {{ config.resources.cpu_limit }}
-      memory: {{ config.resources.memory_limit }}
-      {% if config.resources.gpu_limit %}
-      nvidia.com/gpu: {{ config.resources.gpu_limit }}
-      {% endif %}
-  {% endif %}
-""",
-            'huggingface_spec': """
-huggingface:
-  storageUri: {{ config.storage_uri }}
-  {% if resources %}
-  resources:
-    requests:
-      cpu: {{ config.resources.cpu_request }}
-      memory: {{ config.resources.memory_request }}
-    limits:
-      cpu: {{ config.resources.cpu_limit }}
-      memory: {{ config.resources.memory_limit }}
-      {% if config.resources.gpu_limit %}
-      nvidia.com/gpu: {{ config.resources.gpu_limit }}
-      {% endif %}
-  {% endif %}
-  {% if env_vars %}
-  env:
-    {% for key, value in env_vars.items() %}
-    - name: {{ key }}
-      value: "{{ value }}"
-    {% endfor %}
   {% endif %}
 """
         }
@@ -409,6 +298,13 @@ huggingface:
                 env_vars=config.env_vars,
                 resources=config.resources is not None,
                 model_format=model_format
+            )
+        elif config.runtime_type == RuntimeType.CUSTOM:
+            template = self.jinja_env.from_string(self.templates['custom_spec'])
+            return template.render(
+                config=config,
+                env_vars=config.env_vars,
+                resources=config.resources is not None
             )
         
         # Use built-in serving runtime
@@ -522,6 +418,19 @@ containers:
         yaml_str = self.render_inference_service_yaml(config)
         return yaml.safe_load(yaml_str)
     
+    def load_from_config_file(self, config_path: Union[str, Path]) -> InferenceServiceConfig:
+        """
+        Load configuration from file and create InferenceServiceConfig
+        
+        Args:
+            config_path: Path to configuration file (YAML or JSON)
+            
+        Returns:
+            InferenceServiceConfig: Parsed configuration
+        """
+        config_dict = ConfigLoader.load_config_file(config_path)
+        return ConfigLoader.config_to_inference_service(config_dict)
+    
     def save_template_to_file(self, config: InferenceServiceConfig, filename: Optional[str] = None, output_dir: Optional[str] = None) -> str:
         """
         Save rendered template to file
@@ -557,179 +466,186 @@ containers:
         print(f"Template saved to: {filepath}")
         return str(filepath)
     
-    def save_batch_templates(self, configs: List[InferenceServiceConfig], output_dir: Optional[str] = None) -> List[str]:
+    def generate_sample_config(self, config_type: str = "basic", output_path: Optional[str] = None) -> str:
         """
-        Save multiple templates to files
+        Generate sample configuration files
         
         Args:
-            configs: List of InferenceService configurations
-            output_dir: Custom output directory (optional)
+            config_type: Type of config ('basic', 'gpu', 'multi-model', 'complete')
+            output_path: Path to save the config file
             
         Returns:
-            List[str]: Paths to saved files
+            str: Path to generated config file
         """
-        saved_files = []
-        for config in configs:
-            filepath = self.save_template_to_file(config, output_dir=output_dir)
-            saved_files.append(filepath)
-        return saved_files
-    
-    def create_inference_service_object(self, config: InferenceServiceConfig) -> V1beta1InferenceService:
-        """
-        Create KServe InferenceService object from configuration
-        
-        Args:
-            config: InferenceService configuration
-            
-        Returns:
-            V1beta1InferenceService: KServe InferenceService object
-        """
-        isvc_dict = self.render_inference_service_dict(config)
-        
-        # Convert dictionary to KServe object
-        metadata = client.V1ObjectMeta(
-            name=config.name,
-            namespace=config.namespace,
-        )
-        
-        # Add annotations if any
-        annotations = config.annotations or {}
-        if config.deployment_mode == DeploymentMode.RAW_DEPLOYMENT:
-            annotations["serving.kserve.io/deploymentMode"] = "RawDeployment"
-        if annotations:
-            metadata.annotations = annotations
-        
-        # Add labels if any
-        if config.labels:
-            metadata.labels = config.labels
-        
-        # Create predictor spec based on framework and runtime type
-        predictor_kwargs = {
-            "min_replicas": config.scaling.min_replicas,
-            "max_replicas": config.scaling.max_replicas,
+        configs = {
+            "basic": {
+                "metadata": {
+                    "name": "simple-model",
+                    "namespace": "default"
+                },
+                "storage": {
+                    "uri": "s3://my-bucket/models/simple-model/"
+                },
+                "runtime": {
+                    "framework": "triton",
+                    "type": "cluster",
+                    "cluster_runtime": {
+                        "runtime_name": "triton-server"
+                    }
+                },
+                "resources": {
+                    "cpu_request": "100m",
+                    "memory_request": "512Mi",
+                    "cpu_limit": "1",
+                    "memory_limit": "2Gi"
+                },
+                "scaling": {
+                    "min_replicas": 1,
+                    "max_replicas": 3
+                }
+            },
+            "gpu": {
+                "metadata": {
+                    "name": "gpu-model",
+                    "namespace": "ml-inference"
+                },
+                "storage": {
+                    "uri": "s3://ai-models/bert-large/v1.0/"
+                },
+                "runtime": {
+                    "framework": "triton",
+                    "type": "cluster",
+                    "deployment_mode": "RawDeployment",
+                    "cluster_runtime": {
+                        "runtime_name": "triton-server-gpu",
+                        "runtime_version": "2.29.0",
+                        "model_format": "pytorch_libtorch"
+                    }
+                },
+                "resources": {
+                    "cpu_request": "2",
+                    "memory_request": "8Gi",
+                    "cpu_limit": "4",
+                    "memory_limit": "16Gi",
+                    "gpu_limit": "1"
+                },
+                "scaling": {
+                    "min_replicas": 1,
+                    "max_replicas": 3,
+                    "scale_target": 70
+                },
+                "environment": {
+                    "CUDA_VISIBLE_DEVICES": "0",
+                    "TRITON_LOG_VERBOSE": "1"
+                },
+                "kubernetes": {
+                    "node_selector": {
+                        "accelerator": "nvidia-tesla-v100"
+                    },
+                    "tolerations": [
+                        {
+                            "key": "nvidia.com/gpu",
+                            "operator": "Equal",
+                            "value": "present",
+                            "effect": "NoSchedule"
+                        }
+                    ]
+                },
+                "annotations": {
+                    "serving.kserve.io/deploymentMode": "RawDeployment"
+                }
+            },
+            "complete": {
+                "metadata": {
+                    "name": "advanced-model",
+                    "namespace": "production"
+                },
+                "storage": {
+                    "uri": "s3://ml-models/advanced-model/v2.0/"
+                },
+                "runtime": {
+                    "framework": "triton",
+                    "type": "cluster",
+                    "deployment_mode": "Knative",
+                    "protocol_version": "v1",
+                    "cluster_runtime": {
+                        "runtime_name": "triton-server",
+                        "runtime_version": "2.29.0",
+                        "model_format": "ensemble",
+                        "protocol_version": "v1"
+                    }
+                },
+                "resources": {
+                    "cpu_request": "1",
+                    "memory_request": "2Gi",
+                    "cpu_limit": "4",
+                    "memory_limit": "8Gi",
+                    "gpu_limit": "1"
+                },
+                "scaling": {
+                    "min_replicas": 2,
+                    "max_replicas": 10,
+                    "scale_target": 80,
+                    "scale_metric": "concurrency"
+                },
+                "environment": {
+                    "MODEL_NAME": "advanced-model",
+                    "MAX_BATCH_SIZE": "32",
+                    "TRITON_LOG_VERBOSE": "1"
+                },
+                "kubernetes": {
+                    "service_account": "kserve-sa",
+                    "node_selector": {
+                        "workload-type": "ml-inference"
+                    }
+                },
+                "annotations": {
+                    "serving.kserve.io/enable-prometheus-scraping": "true",
+                    "autoscaling.knative.dev/target": "80"
+                },
+                "labels": {
+                    "app": "advanced-model",
+                    "version": "v2.0",
+                    "team": "ml-platform"
+                },
+                "advanced": {
+                    "canary_traffic_percent": 10,
+                    "transformer": {
+                        "image": "my-registry/text-transformer:v1.0",
+                        "env": {
+                            "TOKENIZER_PATH": "/models/tokenizer",
+                            "MAX_SEQUENCE_LENGTH": "2048"
+                        },
+                        "resources": {
+                            "requests": {
+                                "cpu": "500m",
+                                "memory": "1Gi"
+                            },
+                            "limits": {
+                                "cpu": "1",
+                                "memory": "2Gi"
+                            }
+                        }
+                    }
+                }
+            }
         }
         
-        # Add resources if specified
-        resources = None
-        if config.resources:
-            resources = client.V1ResourceRequirements(
-                requests={
-                    "cpu": config.resources.cpu_request,
-                    "memory": config.resources.memory_request
-                },
-                limits={
-                    "cpu": config.resources.cpu_limit,
-                    "memory": config.resources.memory_limit
-                }
-            )
-            if config.resources.gpu_limit:
-                resources.limits["nvidia.com/gpu"] = config.resources.gpu_limit
+        if config_type not in configs:
+            raise ValueError(f"Unknown config type: {config_type}. Available: {list(configs.keys())}")
         
-        # Handle different runtime types
-        if config.runtime_type == RuntimeType.CLUSTER and config.cluster_runtime:
-            # Use model spec for ClusterServingRuntime
-            model_spec = {
-                "modelFormat": {
-                    "name": config.cluster_runtime.model_format or config.framework.value
-                },
-                "runtime": config.cluster_runtime.runtime_name,
-                "storageUri": config.storage_uri,
-                "protocolVersion": config.protocol_version
-            }
-            if config.cluster_runtime.runtime_version:
-                model_spec["modelFormat"]["version"] = config.cluster_runtime.runtime_version
-            
-            predictor_kwargs["model"] = model_spec
-            
-            # Add environment variables and resources to model spec
-            if config.env_vars:
-                env = [client.V1EnvVar(name=k, value=str(v)) for k, v in config.env_vars.items()]
-                model_spec["env"] = env
-            if resources:
-                model_spec["resources"] = resources
-                
-        elif config.runtime_type == RuntimeType.BUILTIN:
-            # Use framework-specific specs for built-in runtimes
-            if config.framework == Framework.SKLEARN:
-                framework_spec = V1beta1SKLearnSpec(
-                    storage_uri=config.storage_uri,
-                    protocol_version=config.protocol_version,
-                    resources=resources
-                )
-                predictor_kwargs["sklearn"] = framework_spec
-            elif config.framework == Framework.TENSORFLOW:
-                framework_spec = V1beta1TensorflowSpec(
-                    storage_uri=config.storage_uri,
-                    protocol_version=config.protocol_version,
-                    resources=resources
-                )
-                predictor_kwargs["tensorflow"] = framework_spec
-            elif config.framework == Framework.PYTORCH:
-                framework_spec = V1beta1PyTorchSpec(
-                    storage_uri=config.storage_uri,
-                    protocol_version=config.protocol_version,
-                    resources=resources
-                )
-                predictor_kwargs["pytorch"] = framework_spec
-            # Add other frameworks as needed
-                
-        elif config.runtime_type == RuntimeType.CUSTOM:
-            if not config.custom_image:
-                raise ValueError("custom_image is required for custom runtime type")
-            
-            env = []
-            if config.env_vars:
-                for key, value in config.env_vars.items():
-                    env.append(client.V1EnvVar(name=key, value=str(value)))
-            if config.storage_uri:
-                env.append(client.V1EnvVar(name="STORAGE_URI", value=config.storage_uri))
-            
-            containers = [client.V1Container(
-                name="kserve-container",
-                image=config.custom_image,
-                env=env if env else None,
-                resources=resources
-            )]
-            predictor_kwargs["containers"] = containers
+        config_data = configs[config_type]
         
-        predictor_spec = V1beta1PredictorSpec(**predictor_kwargs)
+        # Determine output path
+        if not output_path:
+            output_path = f"kserve-config-{config_type}.yaml"
         
-        # Create InferenceService spec
-        isvc_spec = V1beta1InferenceServiceSpec(predictor=predictor_spec)
+        # Save config
+        with open(output_path, 'w') as f:
+            yaml.dump(config_data, f, default_flow_style=False, indent=2)
         
-        # Create InferenceService
-        isvc = V1beta1InferenceService(
-            api_version="serving.kserve.io/v1beta1",
-            kind="InferenceService",
-            metadata=metadata,
-            spec=isvc_spec
-        )
-        
-        return isvc
-    
-    def template_batch(self, configs: List[InferenceServiceConfig], output_format: str = "yaml") -> List[str]:
-        """
-        Template multiple InferenceServices at once
-        
-        Args:
-            configs: List of InferenceService configurations
-            output_format: Output format ('yaml', 'dict', 'object')
-            
-        Returns:
-            List of rendered templates
-        """
-        results = []
-        for config in configs:
-            if output_format == "yaml":
-                result = self.render_inference_service_yaml(config)
-            elif output_format == "dict":
-                result = self.render_inference_service_dict(config)
-            elif output_format == "object":
-                result = self.create_inference_service_object(config)
-            else:
-                raise ValueError(f"Unsupported output format: {output_format}")
-            results.append(result)
-        return results
+        print(f"Sample {config_type} configuration saved to: {output_path}")
+        return output_path
     
     def validate_template(self, config: InferenceServiceConfig) -> Dict[str, Any]:
         """
@@ -768,8 +684,7 @@ containers:
             }
 
 # Helper functions
-def create_cluster_runtime_config(name: str, storage_uri: str, runtime_name: str, 
-                                  framework: Framework = Framework.SKLEARN, **kwargs) -> InferenceServiceConfig:
+def create_cluster_runtime_config(name: str, storage_uri: str, runtime_name: str = "triton-server", **kwargs) -> InferenceServiceConfig:
     """Helper to create ClusterServingRuntime configuration"""
     cluster_runtime = ClusterServingRuntimeConfig(
         runtime_name=runtime_name,
@@ -779,17 +694,17 @@ def create_cluster_runtime_config(name: str, storage_uri: str, runtime_name: str
     return InferenceServiceConfig(
         name=name,
         storage_uri=storage_uri,
-        framework=framework,
+        framework=Framework.TRITON,
         runtime_type=RuntimeType.CLUSTER,
         cluster_runtime=cluster_runtime,
         **{k: v for k, v in kwargs.items() if k not in ['runtime_version', 'protocol_version', 'model_format']}
     )
 
-def create_sklearn_config(name: str, storage_uri: str, **kwargs) -> InferenceServiceConfig:
-    """Helper to create sklearn configuration"""
+def create_triton_config(name: str, storage_uri: str, **kwargs) -> InferenceServiceConfig:
+    """Helper to create triton configuration"""
     return InferenceServiceConfig(
         name=name,
-        framework=Framework.SKLEARN,
+        framework=Framework.TRITON,
         storage_uri=storage_uri,
         **kwargs
     )
@@ -798,7 +713,7 @@ def create_custom_config(name: str, storage_uri: str, custom_image: str, **kwarg
     """Helper to create custom configuration"""
     return InferenceServiceConfig(
         name=name,
-        framework=Framework.CUSTOM,
+        framework=Framework.TRITON,
         runtime_type=RuntimeType.CUSTOM,
         storage_uri=storage_uri,
         custom_image=custom_image,
@@ -806,18 +721,33 @@ def create_custom_config(name: str, storage_uri: str, custom_image: str, **kwarg
     )
 
 def main():
-    """CLI entry point"""
-    parser = argparse.ArgumentParser(description="KServe Template Generator")
-    parser.add_argument("--name", required=True, help="InferenceService name")
-    parser.add_argument("--storage-uri", required=True, help="Model storage URI")
-    parser.add_argument("--framework", choices=[f.value for f in Framework], 
-                       default="sklearn", help="ML framework")
+    """CLI entry point with config file support"""
+    parser = argparse.ArgumentParser(description="KServe Triton Template Generator")
+    
+    # Config file option
+    parser.add_argument("--config", help="Path to configuration file (YAML or JSON)")
+    parser.add_argument("--generate-config", choices=["basic", "gpu", "complete"], 
+                       help="Generate sample configuration file")
+    
+    # Individual options (can override config file)
+    parser.add_argument("--name", help="InferenceService name")
+    parser.add_argument("--storage-uri", help="Model storage URI")
     parser.add_argument("--runtime-type", choices=[r.value for r in RuntimeType],
                        default="cluster", help="Runtime type")
-    parser.add_argument("--runtime-name", help="ClusterServingRuntime name")
+    parser.add_argument("--runtime-name", default="triton-server", help="ClusterServingRuntime name")
     parser.add_argument("--namespace", default="default", help="Kubernetes namespace")
     parser.add_argument("--output-dir", help="Output directory for templates")
     parser.add_argument("--custom-image", help="Custom container image")
+    parser.add_argument("--cpu-request", default="100m", help="CPU request")
+    parser.add_argument("--memory-request", default="512Mi", help="Memory request")
+    parser.add_argument("--cpu-limit", default="1", help="CPU limit")
+    parser.add_argument("--memory-limit", default="2Gi", help="Memory limit")
+    parser.add_argument("--gpu-limit", help="GPU limit")
+    parser.add_argument("--min-replicas", type=int, default=1, help="Minimum replicas")
+    parser.add_argument("--max-replicas", type=int, default=3, help="Maximum replicas")
+    parser.add_argument("--deployment-mode", choices=[d.value for d in DeploymentMode],
+                       default="Knative", help="Deployment mode")
+    parser.add_argument("--validate-only", action="store_true", help="Only validate, don't generate")
     
     args = parser.parse_args()
     
@@ -827,36 +757,99 @@ def main():
         output_dir=args.output_dir
     )
     
-    # Create configuration
-    if args.runtime_type == "cluster":
-        config = create_cluster_runtime_config(
-            name=args.name,
-            storage_uri=args.storage_uri,
-            runtime_name=args.runtime_name or f"{args.framework}-server",
-            framework=Framework(args.framework),
-            namespace=args.namespace
-        )
-    elif args.runtime_type == "custom":
-        if not args.custom_image:
-            raise ValueError("--custom-image is required for custom runtime type")
-        config = create_custom_config(
-            name=args.name,
-            storage_uri=args.storage_uri,
-            custom_image=args.custom_image,
-            namespace=args.namespace
-        )
-    else:  # builtin
-        config = InferenceServiceConfig(
-            name=args.name,
-            storage_uri=args.storage_uri,
-            framework=Framework(args.framework),
-            runtime_type=RuntimeType.BUILTIN,
-            namespace=args.namespace
-        )
+    # Generate sample config if requested
+    if args.generate_config:
+        client.generate_sample_config(args.generate_config)
+        return
     
-    # Generate and save template
-    filepath = client.save_template_to_file(config)
-    print(f"Template generated successfully: {filepath}")
+    # Load from config file or create from CLI args
+    if args.config:
+        print(f"Loading configuration from: {args.config}")
+        try:
+            config = client.load_from_config_file(args.config)
+            
+            # Override with CLI arguments if provided
+            if args.name:
+                config.name = args.name
+            if args.storage_uri:
+                config.storage_uri = args.storage_uri
+            if args.namespace:
+                config.namespace = args.namespace
+            if args.min_replicas:
+                config.scaling.min_replicas = args.min_replicas
+            if args.max_replicas:
+                config.scaling.max_replicas = args.max_replicas
+                
+        except Exception as e:
+            print(f"❌ Error loading config file: {e}")
+            return
+    else:
+        # Create configuration from CLI arguments
+        if not args.name or not args.storage_uri:
+            print("❌ --name and --storage-uri are required when not using config file")
+            return
+            
+        if args.runtime_type == "cluster":
+            config = create_cluster_runtime_config(
+                name=args.name,
+                storage_uri=args.storage_uri,
+                runtime_name=args.runtime_name,
+                namespace=args.namespace,
+                deployment_mode=DeploymentMode(args.deployment_mode),
+                resources=ResourceConfig(
+                    cpu_request=args.cpu_request,
+                    memory_request=args.memory_request,
+                    cpu_limit=args.cpu_limit,
+                    memory_limit=args.memory_limit,
+                    gpu_limit=args.gpu_limit
+                ),
+                scaling=ScalingConfig(
+                    min_replicas=args.min_replicas,
+                    max_replicas=args.max_replicas
+                )
+            )
+        elif args.runtime_type == "custom":
+            if not args.custom_image:
+                print("❌ --custom-image is required for custom runtime type")
+                return
+            config = create_custom_config(
+                name=args.name,
+                storage_uri=args.storage_uri,
+                custom_image=args.custom_image,
+                namespace=args.namespace,
+                deployment_mode=DeploymentMode(args.deployment_mode),
+                resources=ResourceConfig(
+                    cpu_request=args.cpu_request,
+                    memory_request=args.memory_request,
+                    cpu_limit=args.cpu_limit,
+                    memory_limit=args.memory_limit,
+                    gpu_limit=args.gpu_limit
+                ),
+                scaling=ScalingConfig(
+                    min_replicas=args.min_replicas,
+                    max_replicas=args.max_replicas
+                )
+            )
+        else:  # builtin
+            config = InferenceServiceConfig(
+                name=args.name,
+                storage_uri=args.storage_uri,
+                framework=Framework.TRITON,
+                runtime_type=RuntimeType.BUILTIN,
+                namespace=args.namespace,
+                deployment_mode=DeploymentMode(args.deployment_mode),
+                resources=ResourceConfig(
+                    cpu_request=args.cpu_request,
+                    memory_request=args.memory_request,
+                    cpu_limit=args.cpu_limit,
+                    memory_limit=args.memory_limit,
+                    gpu_limit=args.gpu_limit
+                ),
+                scaling=ScalingConfig(
+                    min_replicas=args.min_replicas,
+                    max_replicas=args.max_replicas
+                )
+            )
     
     # Validate template
     validation = client.validate_template(config)
@@ -866,224 +859,144 @@ def main():
         print("❌ Template validation failed:")
         for error in validation['errors']:
             print(f"  - {error}")
+        if args.validate_only:
+            return
+    
+    # Generate and save template (unless validate-only)
+    if not args.validate_only:
+        try:
+            filepath = client.save_template_to_file(config)
+            print(f"✅ Template generated successfully: {filepath}")
+            
+            # Show preview of generated YAML
+            print("\n--- Generated YAML Preview ---")
+            yaml_content = client.render_inference_service_yaml(config)
+            print(yaml_content[:500] + "..." if len(yaml_content) > 500 else yaml_content)
+            
+        except Exception as e:
+            print(f"❌ Error generating template: {e}")
 
 if __name__ == "__main__":
-    # Check if running as CLI
-    import sys
-    if len(sys.argv) > 1:
-        main()
-    else:
-        # Example usage
-        # Initialize the templating client
-        client = KServeTemplatingClient(output_dir="./kserve-outputs")
-        
-        # Example 1: ClusterServingRuntime sklearn model
-        sklearn_cluster_config = create_cluster_runtime_config(
-            name="sklearn-iris-cluster",
-            storage_uri="gs://kfserving-examples/models/sklearn/1.0/model",
-            runtime_name="sklearn-server",
-            framework=Framework.SKLEARN,
-            namespace="default",
-            deployment_mode=DeploymentMode.RAW_DEPLOYMENT,
-            resources=ResourceConfig(
-                cpu_request="200m",
-                memory_request="1Gi",
-                cpu_limit="1",
-                memory_limit="2Gi"
-            ),
-            scaling=ScalingConfig(
-                min_replicas=2,
-                max_replicas=5
-            ),
-            annotations={
-                "example.com/model-version": "1.0.0"
-            }
-        )
-        
-        # Render as YAML
-        print("=== ClusterServingRuntime Sklearn Model YAML ===")
-        print(client.render_inference_service_yaml(sklearn_cluster_config))
-        print()
-        
-        # Save to file
-        sklearn_path = client.save_template_to_file(sklearn_cluster_config)
-        
-        # Example 2: ClusterServingRuntime TensorFlow model with GPU
-        tf_cluster_config = create_cluster_runtime_config(
-            name="tensorflow-model-cluster",
-            storage_uri="gs://kfserving-examples/models/tensorflow/flowers",
-            runtime_name="tensorflow-serving",
-            framework=Framework.TENSORFLOW,
-            namespace="ml-models",
-            deployment_mode=DeploymentMode.KNATIVE,
-            env_vars={
-                "TF_CPP_MIN_LOG_LEVEL": "2",
-                "MODEL_NAME": "flowers"
-            },
-            resources=ResourceConfig(
-                cpu_request="500m",
-                memory_request="2Gi",
-                cpu_limit="2",
-                memory_limit="8Gi",
-                gpu_limit="1"
-            ),
-            scaling=ScalingConfig(
-                min_replicas=1,
-                max_replicas=10,
-                scale_target=10
-            ),
-            cluster_runtime=ClusterServingRuntimeConfig(
-                runtime_name="tensorflow-serving",
-                runtime_version="2.13.0",
-                protocol_version="v1"
-            )
-        )
-        
-        print("=== ClusterServingRuntime TensorFlow Model YAML ===")
-        print(client.render_inference_service_yaml(tf_cluster_config))
-        print()
-        
-        # Save to file
-        tf_path = client.save_template_to_file(tf_cluster_config)
-        
-        # Example 3: Custom model with storage URI
-        custom_config = create_custom_config(
-            name="custom-model-with-storage",
-            storage_uri="s3://my-bucket/models/custom/",
-            custom_image="myregistry/custom-model:v1.0",
-            namespace="ml-models",
-            deployment_mode=DeploymentMode.KNATIVE,
-            env_vars={
-                "MODEL_TYPE": "transformer",
-                "BATCH_SIZE": "32",
-                "LOG_LEVEL": "INFO"
-            },
-            resources=ResourceConfig(
-                cpu_request="500m",
-                memory_request="2Gi",
-                cpu_limit="2",
-                memory_limit="8Gi",
-                gpu_limit="1"
-            ),
-            scaling=ScalingConfig(
-                min_replicas=1,
-                max_replicas=10,
-                scale_target=10
-            )
-        )
-        
-        print("=== Custom Model with Storage URI YAML ===")
-        print(client.render_inference_service_yaml(custom_config))
-        print()
-        
-        # Save to file
-        custom_path = client.save_template_to_file(custom_config)
-        
-        # Example 4: HuggingFace model with ClusterServingRuntime
-        hf_config = create_cluster_runtime_config(
-            name="huggingface-bert",
-            storage_uri="hf://microsoft/DialoGPT-medium",
-            runtime_name="huggingface-server",
-            framework=Framework.HUGGINGFACE,
-            namespace="default",
-            env_vars={
-                "HUGGINGFACE_HUB_CACHE": "/tmp/hf_cache",
-                "TRANSFORMERS_CACHE": "/tmp/transformers_cache"
-            },
-            resources=ResourceConfig(
-                cpu_request="1",
-                memory_request="4Gi",
-                cpu_limit="4",
-                memory_limit="16Gi",
-                gpu_limit="1"
-            ),
-            scaling=ScalingConfig(
-                min_replicas=1,
-                max_replicas=3
-            )
-        )
-        
-        print("=== HuggingFace Model with ClusterServingRuntime YAML ===")
-        print(client.render_inference_service_yaml(hf_config))
-        print()
-        
-        # Save to file
-        hf_path = client.save_template_to_file(hf_config)
-        
-        # Example 5: Batch templating and saving
-        all_configs = [sklearn_cluster_config, tf_cluster_config, custom_config, hf_config]
-        
-        print("=== Batch Processing ===")
-        saved_files = client.save_batch_templates(all_configs)
-        print(f"Saved {len(saved_files)} templates:")
-        for file_path in saved_files:
-            print(f"  - {file_path}")
-        
-        # Example 6: Validation
-        print("\n=== Validation Results ===")
-        for config in all_configs:
-            validation_result = client.validate_template(config)
-            status = "✅ VALID" if validation_result['valid'] else "❌ INVALID"
-            print(f"{config.name}: {status}")
-            if validation_result['errors']:
-                for error in validation_result['errors']:
-                    print(f"  - {error}")
-        
-        # Example 7: PyTorch model with advanced configuration
-        pytorch_config = create_cluster_runtime_config(
-            name="pytorch-resnet",
-            storage_uri="gs://my-bucket/pytorch-models/resnet50/",
-            runtime_name="pytorch-server",
-            framework=Framework.PYTORCH,
-            namespace="production",
-            deployment_mode=DeploymentMode.RAW_DEPLOYMENT,
-            env_vars={
-                "PYTORCH_JIT": "1",
-                "OMP_NUM_THREADS": "4"
-            },
-            resources=ResourceConfig(
-                cpu_request="1",
-                memory_request="4Gi",
-                cpu_limit="4",
-                memory_limit="16Gi",
-                gpu_limit="1"
-            ),
-            scaling=ScalingConfig(
-                min_replicas=2,
-                max_replicas=8,
-                scale_target=50,
-                scale_metric="concurrency"
-            ),
-            annotations={
-                "serving.kserve.io/autoscalerClass": "hpa.autoscaling.knative.dev",
-                "serving.kserve.io/metric": "concurrency",
-                "serving.kserve.io/targetUtilizationPercentage": "75"
-            },
-            labels={
-                "app": "pytorch-inference",
-                "version": "v1.0",
-                "environment": "production"
-            },
-            service_account="pytorch-inference-sa",
-            node_selector={
-                "node-type": "gpu-node",
-                "zone": "us-west1-a"
-            },
-            tolerations=[
-                {
-                    "key": "nvidia.com/gpu",
-                    "operator": "Equal",
-                    "value": "present",
-                    "effect": "NoSchedule"
-                }
-            ]
-        )
-        
-        print("\n=== Advanced PyTorch Configuration YAML ===")
-        print(client.render_inference_service_yaml(pytorch_config))
-        
-        # Save advanced config
-        pytorch_path = client.save_template_to_file(pytorch_config, "pytorch_advanced_config.yaml")
-        print(f"\nAdvanced PyTorch config saved to: {pytorch_path}")
-        
-        print(f"\n🎉 All examples completed! Check the '{client.output_dir}' directory for generated templates.")
+    main() if annotations %}
+  annotations:
+    {% for key, value in annotations.items() %}
+    {{ key }}: "{{ value }}"
+    {% endfor %}
+  {% endif %}
+  {% if labels %}
+  labels:
+    {% for key, value in labels.items() %}
+    {{ key }}: "{{ value }}"
+    {% endfor %}
+  {% endif %}
+spec:
+  {% if config.service_account %}
+  serviceAccountName: {{ config.service_account }}
+  {% endif %}
+  predictor:
+    {% if config.scaling.min_replicas %}
+    minReplicas: {{ config.scaling.min_replicas }}
+    {% endif %}
+    {% if config.scaling.max_replicas %}
+    maxReplicas: {{ config.scaling.max_replicas }}
+    {% endif %}
+    {% if config.scaling.scale_target %}
+    scaleTarget: {{ config.scaling.scale_target }}
+    {% endif %}
+    {% if config.scaling.scale_metric %}
+    scaleMetric: {{ config.scaling.scale_metric }}
+    {% endif %}
+    {% if config.node_selector %}
+    nodeSelector:
+      {% for key, value in config.node_selector.items() %}
+      {{ key }}: "{{ value }}"
+      {% endfor %}
+    {% endif %}
+    {% if config.tolerations %}
+    tolerations:
+      {% for toleration in config.tolerations %}
+      - {{ toleration | tojson }}
+      {% endfor %}
+    {% endif %}
+    {{ framework_spec | indent(4, true) }}
+  {% if transformer_spec %}
+  transformer:
+    {{ transformer_spec | indent(4, true) }}
+  {% endif %}
+  {% if explainer_spec %}
+  explainer:
+    {{ explainer_spec | indent(4, true) }}
+  {% endif %}
+""",
+            'cluster_runtime_spec': """
+model:
+  modelFormat:
+    name: {{ model_format or config.framework.value }}
+    {% if config.cluster_runtime.runtime_version %}
+    version: {{ config.cluster_runtime.runtime_version }}
+    {% endif %}
+  runtime: {{ config.cluster_runtime.runtime_name }}
+  storageUri: {{ config.storage_uri }}
+  {% if config.protocol_version %}
+  protocolVersion: {{ config.protocol_version }}
+  {% endif %}
+  {% if resources %}
+  resources:
+    requests:
+      cpu: {{ config.resources.cpu_request }}
+      memory: {{ config.resources.memory_request }}
+    limits:
+      cpu: {{ config.resources.cpu_limit }}
+      memory: {{ config.resources.memory_limit }}
+      {% if config.resources.gpu_limit %}
+      nvidia.com/gpu: {{ config.resources.gpu_limit }}
+      {% endif %}
+  {% endif %}
+  {% if env_vars %}
+  env:
+    {% for key, value in env_vars.items() %}
+    - name: {{ key }}
+      value: "{{ value }}"
+    {% endfor %}
+  {% endif %}
+""",
+            'triton_spec': """
+triton:
+  storageUri: {{ config.storage_uri }}
+  protocolVersion: {{ config.protocol_version }}
+  {% if resources %}
+  resources:
+    requests:
+      cpu: {{ config.resources.cpu_request }}
+      memory: {{ config.resources.memory_request }}
+    limits:
+      cpu: {{ config.resources.cpu_limit }}
+      memory: {{ config.resources.memory_limit }}
+      {% if config.resources.gpu_limit %}
+      nvidia.com/gpu: {{ config.resources.gpu_limit }}
+      {% endif %}
+  {% endif %}
+  {% if env_vars %}
+  env:
+    {% for key, value in env_vars.items() %}
+    - name: {{ key }}
+      value: "{{ value }}"
+    {% endfor %}
+  {% endif %}
+""",
+            'custom_spec': """
+containers:
+- name: kserve-container
+  image: {{ config.custom_image }}
+  {% if env_vars %}
+  env:
+    {% for key, value in env_vars.items() %}
+    - name: {{ key }}
+      value: "{{ value }}"
+    {% endfor %}
+    {% if config.storage_uri %}
+    - name: STORAGE_URI
+      value: {{ config.storage_uri }}
+    {% endif %}
+  {% endif %}
+  {%
