@@ -1,37 +1,140 @@
-Use the Service Mesh system and enable KServe serverless mode at the app-code-level namespace.
-The inference namespaces are limited to just non-prod and prod.
-This setup could allow us to natively support scale-to-zero for inference services without needing any additional implementation.
+from flask import Flask, request, jsonify, render_template_string
+from flask_cors import CORS
+import time
+import yaml
+import os
 
+app = Flask(__name__)
+CORS(app)
 
-graph TD
-    subgraph Non-Prod Cluster
-        subgraph app_code_1
-            A1[Dev] --> I
-            B1[QA] --> I
-            C1[UAT] --> I
-        end
-        I[Inference Namespace<br>KServe Serverless]
-    end
-    External -- MTLS --> Auth[Auth Server]
-    Auth -->|Auth Token| B1
-    B1 --> I
+# Simple in-memory user storage (use a proper database in production)
+users = {
+    "admin": "password123",
+    "user": "test123"
+}
 
-Use RawDeployment mode with no additional namespace setup.
-Inference services are deployed alongside the application as part of the promotion process — either directly from dev/qa/uat to prod, depending on the team’s choice.
-The research workflow is restricted to using only the -dev namespace.
+# Store active sessions (use Redis or proper session management in production)
+sessions = {}
 
+@app.route('/')
+def index():
+    return render_template_string(open('index.html').read())
 
-flowchart TD
- subgraph s1["app_code_1-dev"]
-        A1["App Service"]
-        I1["KServe RawDeployment Pod"]
-  end
- subgraph subGraph1["Non-Prod Cluster"]
-        s1
-  end
-    A1 --> I1
-    Route["OpenShift Route - with mTLS"] --> A1 & I1
-    External["External Client"] -- mTLS --> Route
+@app.route('/api/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    username = data.get('username')
+    password = data.get('password')
+    
+    if username in users and users[username] == password:
+        session_token = f"session_{username}_{int(time.time())}"
+        sessions[session_token] = username
+        return jsonify({
+            "success": True,
+            "token": session_token,
+            "message": "Login successful"
+        })
+    else:
+        return jsonify({
+            "success": False,
+            "message": "Invalid credentials"
+        }), 401
 
+@app.route('/api/generate-yaml', methods=['POST'])
+def generate_yaml():
+    data = request.get_json()
+    
+    # Generate Kubernetes inference service YAML
+    yaml_content = {
+        "apiVersion": "serving.kserve.io/v1beta1",
+        "kind": "InferenceService",
+        "metadata": {
+            "name": data.get('serviceName', 'inference-service'),
+            "namespace": "default"
+        },
+        "spec": {
+            "predictor": {
+                "containers": [
+                    {
+                        "name": "predictor",
+                        "image": f"inference-runtime:{data.get('runtime', 'pytorch')}",
+                        "env": [
+                            {
+                                "name": "MODEL_PATH",
+                                "value": data.get('s3Url', 's3://model-bucket/model')
+                            }
+                        ],
+                        "resources": {
+                            "requests": {
+                                "cpu": data.get('cpuRequest', '1'),
+                                "memory": data.get('memoryRequest', '2Gi'),
+                                "nvidia.com/gpu": data.get('gpuRequest', '1')
+                            },
+                            "limits": {
+                                "cpu": data.get('cpuRequest', '1'),
+                                "memory": data.get('memoryRequest', '2Gi'),
+                                "nvidia.com/gpu": data.get('gpuRequest', '1')
+                            }
+                        }
+                    }
+                ]
+            }
+        }
+    }
+    
+    yaml_string = yaml.dump(yaml_content, default_flow_style=False)
+    
+    return jsonify({
+        "success": True,
+        "yaml": yaml_string
+    })
 
+@app.route('/api/deploy', methods=['POST'])
+def deploy():
+    data = request.get_json()
+    yaml_content = data.get('yaml')
+    
+    # Simulate deployment process
+    time.sleep(2)  # Simulate deployment time
+    
+    return jsonify({
+        "success": True,
+        "message": "Deployment completed successfully!",
+        "status": "Running",
+        "endpoint": f"http://inference-service.default.svc.cluster.local/v1/models/{data.get('serviceName', 'inference-service')}"
+    })
 
+@app.route('/api/deployment-status', methods=['GET'])
+def deployment_status():
+    # Simulate deployment progress
+    import random
+    stages = [
+        "Validating YAML configuration...",
+        "Creating Kubernetes resources...",
+        "Pulling container images...",
+        "Allocating GPU resources...",
+        "Starting inference service...",
+        "Running health checks...",
+        "Deployment completed!"
+    ]
+    
+    stage = request.args.get('stage', 0)
+    stage = int(stage)
+    
+    if stage < len(stages):
+        return jsonify({
+            "stage": stage,
+            "message": stages[stage],
+            "progress": int((stage / len(stages)) * 100),
+            "completed": False
+        })
+    else:
+        return jsonify({
+            "stage": stage,
+            "message": "Deployment successful!",
+            "progress": 100,
+            "completed": True
+        })
+
+if __name__ == '__main__':
+    app.run(debug=True, host='0.0.0.0', port=5000)
