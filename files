@@ -1,493 +1,524 @@
-# KServe Configuration Files
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inference Service Deployment</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-This document provides comprehensive configuration file templates for the KServe Template Generator. You can use these files to define all parameters and load them into the system.
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
 
-## Configuration File Formats
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            padding: 40px;
+            width: 100%;
+            max-width: 600px;
+            transition: all 0.3s ease;
+        }
 
-### 1. Complete YAML Configuration (`kserve-config.yaml`)
+        .page {
+            display: none;
+        }
 
-```yaml
-# KServe InferenceService Configuration
-metadata:
-  name: "llama-2-7b-chat"
-  namespace: "ml-inference"
-  
-# Storage configuration
-storage:
-  uri: "s3://ml-models/llama-2-7b-chat/v1.0/"
-  
-# Framework and runtime settings
-runtime:
-  framework: "triton"  # triton
-  type: "cluster"      # builtin, cluster, custom
-  deployment_mode: "Knative"  # Knative, RawDeployment
-  protocol_version: "v1"
-  
-  # Cluster runtime specific settings
-  cluster_runtime:
-    runtime_name: "triton-server"
-    runtime_version: "2.29.0"
-    model_format: "tensorrt_llm"
-    protocol_version: "v1"
-  
-  # Custom image (only for custom runtime type)
-  custom_image: "my-registry/custom-triton:latest"
+        .page.active {
+            display: block;
+        }
 
-# Resource configuration
-resources:
-  cpu_request: "2"
-  memory_request: "4Gi"
-  cpu_limit: "4"
-  memory_limit: "8Gi"
-  gpu_limit: "1"
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+            text-align: center;
+            font-size: 2.5em;
+            font-weight: 300;
+        }
 
-# Scaling configuration
-scaling:
-  min_replicas: 1
-  max_replicas: 5
-  scale_target: 70
-  scale_metric: "concurrency"
+        h2 {
+            color: #555;
+            margin-bottom: 20px;
+            font-size: 1.8em;
+            font-weight: 400;
+        }
 
-# Environment variables
-environment:
-  MODEL_NAME: "llama-2-7b-chat"
-  MAX_BATCH_SIZE: "32"
-  TRITON_LOG_VERBOSE: "1"
-  CUDA_VISIBLE_DEVICES: "0"
+        .form-group {
+            margin-bottom: 20px;
+        }
 
-# Kubernetes specific settings
-kubernetes:
-  service_account: "kserve-sa"
-  node_selector:
-    gpu-type: "nvidia-a100"
-    zone: "us-west-2a"
-  tolerations:
-    - key: "nvidia.com/gpu"
-      operator: "Equal"
-      value: "present"
-      effect: "NoSchedule"
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 500;
+        }
 
-# Metadata
-annotations:
-  "serving.kserve.io/enable-prometheus-scraping": "true"
-  "serving.kserve.io/enable-metric-aggregation": "true"
-  "autoscaling.knative.dev/target": "70"
+        input, select, textarea {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e1e5e9;
+            border-radius: 12px;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            background: #f8f9fa;
+        }
 
-labels:
-  app: "llama-inference"
-  version: "v1.0"
-  team: "ml-platform"
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            background: white;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
 
-# Advanced configurations
-advanced:
-  canary_traffic_percent: 10
-  
-  # Transformer configuration
-  transformer:
-    image: "my-registry/text-transformer:v1.0"
-    env:
-      TOKENIZER_PATH: "/models/tokenizer"
-      MAX_SEQUENCE_LENGTH: "2048"
-    resources:
-      requests:
-        cpu: "500m"
-        memory: "1Gi"
-      limits:
-        cpu: "1"
-        memory: "2Gi"
-  
-  # Explainer configuration  
-  explainer:
-    image: "my-registry/model-explainer:v1.0"
-    env:
-      EXPLAIN_TYPE: "shap"
-      BASELINE_URI: "s3://ml-models/baselines/"
-    resources:
-      requests:
-        cpu: "200m"
-        memory: "512Mi"
-      limits:
-        cpu: "500m" 
-        memory: "1Gi"
-```
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 100%;
+            margin-top: 20px;
+        }
 
-### 2. Minimal YAML Configuration (`kserve-minimal.yaml`)
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
 
-```yaml
-# Minimal KServe Configuration
-metadata:
-  name: "simple-model"
-  namespace: "default"
+        .btn:active {
+            transform: translateY(0);
+        }
 
-storage:
-  uri: "s3://my-bucket/models/simple-model/"
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
 
-runtime:
-  framework: "triton"
-  type: "cluster"
-  cluster_runtime:
-    runtime_name: "triton-server"
+        .error {
+            color: #e74c3c;
+            font-size: 14px;
+            margin-top: 10px;
+            text-align: center;
+        }
 
-resources:
-  cpu_request: "100m"
-  memory_request: "512Mi"
-  cpu_limit: "1"
-  memory_limit: "2Gi"
+        .success {
+            color: #27ae60;
+            font-size: 14px;
+            margin-top: 10px;
+            text-align: center;
+        }
 
-scaling:
-  min_replicas: 1
-  max_replicas: 3
-```
+        .yaml-container {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 20px;
+            border-radius: 12px;
+            margin: 20px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.4;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
 
-### 3. Complete JSON Configuration (`kserve-config.json`)
+        .loading {
+            text-align: center;
+            padding: 40px;
+        }
 
-```json
-{
-  "metadata": {
-    "name": "bert-classifier",
-    "namespace": "nlp-services"
-  },
-  "storage": {
-    "uri": "gs://ml-models/bert-base-uncased/classification/"
-  },
-  "runtime": {
-    "framework": "triton",
-    "type": "cluster",
-    "deployment_mode": "Knative",
-    "protocol_version": "v1",
-    "cluster_runtime": {
-      "runtime_name": "triton-server",
-      "runtime_version": "2.29.0",
-      "model_format": "onnx",
-      "protocol_version": "v1"
-    }
-  },
-  "resources": {
-    "cpu_request": "500m",
-    "memory_request": "1Gi", 
-    "cpu_limit": "2",
-    "memory_limit": "4Gi",
-    "gpu_limit": null
-  },
-  "scaling": {
-    "min_replicas": 2,
-    "max_replicas": 10,
-    "scale_target": 80,
-    "scale_metric": "concurrency"
-  },
-  "environment": {
-    "MODEL_NAME": "bert-classifier",
-    "MAX_BATCH_SIZE": "16",
-    "SEQUENCE_LENGTH": "512"
-  },
-  "kubernetes": {
-    "service_account": "bert-service-account",
-    "node_selector": {
-      "workload-type": "ml-inference"
-    },
-    "tolerations": []
-  },
-  "annotations": {
-    "serving.kserve.io/enable-prometheus-scraping": "true"
-  },
-  "labels": {
-    "app": "bert-classifier",
-    "version": "v2.1"
-  },
-  "advanced": {
-    "canary_traffic_percent": null,
-    "transformer": null,
-    "explainer": null
-  }
-}
-```
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
 
-### 4. GPU-Optimized Configuration (`gpu-model-config.yaml`)
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
 
-```yaml
-metadata:
-  name: "stable-diffusion-xl"
-  namespace: "image-generation"
+        .progress-bar {
+            background: #e1e5e9;
+            border-radius: 10px;
+            height: 20px;
+            margin: 20px 0;
+            overflow: hidden;
+        }
 
-storage:
-  uri: "s3://ai-models/stable-diffusion-xl/v1.0/"
+        .progress-fill {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100%;
+            transition: width 0.5s ease;
+            border-radius: 10px;
+        }
 
-runtime:
-  framework: "triton"
-  type: "cluster"
-  deployment_mode: "RawDeployment"
-  cluster_runtime:
-    runtime_name: "triton-server-gpu"
-    runtime_version: "2.29.0"
-    model_format: "pytorch_libtorch"
+        .deployment-stage {
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 0 8px 8px 0;
+        }
 
-resources:
-  cpu_request: "4"
-  memory_request: "16Gi"
-  cpu_limit: "8"
-  memory_limit: "32Gi"
-  gpu_limit: "2"
+        .form-row {
+            display: flex;
+            gap: 15px;
+        }
 
-scaling:
-  min_replicas: 1
-  max_replicas: 3
-  scale_target: 1
-  scale_metric: "concurrency"
+        .form-row .form-group {
+            flex: 1;
+        }
 
-environment:
-  CUDA_VISIBLE_DEVICES: "0,1"
-  TRITON_LOG_VERBOSE: "1"
-  MODEL_INSTANCE_COUNT: "2"
-  BATCH_SIZE: "1"
+        .completion-message {
+            background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+            margin: 20px 0;
+        }
 
-kubernetes:
-  node_selector:
-    accelerator: "nvidia-tesla-v100"
-  tolerations:
-    - key: "nvidia.com/gpu"
-      operator: "Equal"
-      value: "present"
-      effect: "NoSchedule"
+        .config-summary {
+            background: #f8f9fa;
+            border: 1px solid #e1e5e9;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 20px 0;
+        }
 
-annotations:
-  "serving.kserve.io/deploymentMode": "RawDeployment"
-  "autoscaling.knative.dev/target-utilization-percentage": "70"
-```
+        .config-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+            border-bottom: 1px solid #e1e5e9;
+        }
 
-### 5. Multi-Model Configuration (`multi-model-config.yaml`)
+        .config-item:last-child {
+            border-bottom: none;
+        }
 
-```yaml
-metadata:
-  name: "ensemble-classifier"
-  namespace: "ml-ensemble"
+        .config-label {
+            font-weight: 500;
+            color: #555;
+        }
 
-storage:
-  uri: "s3://ml-models/ensemble/classifier-v2/"
+        .config-value {
+            color: #333;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Login Page -->
+        <div class="page active" id="login-page">
+            <h1>🚀 Inference Service Deployment</h1>
+            <form id="login-form">
+                <div class="form-group">
+                    <label for="username">Username</label>
+                    <input type="text" id="username" name="username" required>
+                </div>
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" required>
+                </div>
+                <button type="submit" class="btn">Login</button>
+                <div id="login-error" class="error"></div>
+            </form>
+            <div style="margin-top: 20px; font-size: 14px; color: #666; text-align: center;">
+                Demo credentials: admin/password123 or user/test123
+            </div>
+        </div>
 
-runtime:
-  framework: "triton"
-  type: "cluster"
-  cluster_runtime:
-    runtime_name: "triton-server"
-    model_format: "ensemble"
+        <!-- Configuration Wizard -->
+        <div class="page" id="config-page">
+            <h1>⚙️ Configuration Wizard</h1>
+            <form id="config-form">
+                <div class="form-group">
+                    <label for="runtime">Runtime</label>
+                    <select id="runtime" name="runtime" required>
+                        <option value="">Select runtime...</option>
+                        <option value="pytorch">PyTorch</option>
+                        <option value="tensorflow">TensorFlow</option>
+                        <option value="onnx">ONNX</option>
+                        <option value="triton">Triton</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="serviceName">Inference Service Name</label>
+                    <input type="text" id="serviceName" name="serviceName" placeholder="my-inference-service" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="s3Url">S3 Model Location</label>
+                    <input type="text" id="s3Url" name="s3Url" placeholder="s3://my-bucket/model/" required>
+                </div>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="gpuRequest">GPU Request</label>
+                        <input type="number" id="gpuRequest" name="gpuRequest" min="0" max="8" value="1" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="cpuRequest">CPU Request</label>
+                        <input type="text" id="cpuRequest" name="cpuRequest" placeholder="2" value="2" required>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="memoryRequest">Memory Request</label>
+                    <input type="text" id="memoryRequest" name="memoryRequest" placeholder="4Gi" value="4Gi" required>
+                </div>
+                
+                <button type="submit" class="btn">Generate YAML</button>
+            </form>
+        </div>
 
-resources:
-  cpu_request: "1"
-  memory_request: "2Gi"
-  cpu_limit: "4"
-  memory_limit: "8Gi"
+        <!-- YAML Review Page -->
+        <div class="page" id="yaml-page">
+            <h1>📝 Review Configuration</h1>
+            
+            <div class="config-summary" id="config-summary"></div>
+            
+            <h2>Generated YAML:</h2>
+            <div class="yaml-container" id="yaml-content"></div>
+            
+            <div style="display: flex; gap: 10px;">
+                <button class="btn" onclick="goBack()" style="background: #6c757d; width: auto; flex: 1;">Back to Config</button>
+                <button class="btn" onclick="deployService()" style="width: auto; flex: 2;">Deploy Service</button>
+            </div>
+        </div>
 
-scaling:
-  min_replicas: 2
-  max_replicas: 8
-  scale_target: 60
+        <!-- Deployment Page -->
+        <div class="page" id="deployment-page">
+            <h1>🚀 Deploying Service</h1>
+            
+            <div class="loading" id="deployment-loading">
+                <div class="spinner"></div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+                </div>
+                <div class="deployment-stage" id="deployment-stage">
+                    Initializing deployment...
+                </div>
+            </div>
+            
+            <div id="deployment-complete" style="display: none;">
+                <div class="completion-message">
+                    <h2>🎉 Deployment Successful!</h2>
+                    <p>Your inference service is now running and ready to serve predictions.</p>
+                </div>
+                
+                <div class="config-summary">
+                    <div class="config-item">
+                        <span class="config-label">Service Status:</span>
+                        <span class="config-value" style="color: #27ae60;">Running</span>
+                    </div>
+                    <div class="config-item">
+                        <span class="config-label">Endpoint:</span>
+                        <span class="config-value" id="service-endpoint"></span>
+                    </div>
+                    <div class="config-item">
+                        <span class="config-label">Deployment Time:</span>
+                        <span class="config-value" id="deployment-time"></span>
+                    </div>
+                </div>
+                
+                <button class="btn" onclick="startOver()">Deploy Another Service</button>
+            </div>
+        </div>
+    </div>
 
-environment:
-  TRITON_MODEL_REPOSITORY: "/models"
-  TRITON_STRICT_MODEL_CONFIG: "false"
-  TRITON_LOG_VERBOSE: "1"
+    <script>
+        let currentConfig = {};
+        let sessionToken = null;
+        let deploymentStartTime = null;
 
-advanced:
-  transformer:
-    image: "my-registry/preprocessing:v1.2"
-    env:
-      PREPROCESS_TYPE: "ensemble"
-      FEATURE_COLUMNS: "text,metadata"
-    resources:
-      requests:
-        cpu: "200m"
-        memory: "512Mi"
-      limits:
-        cpu: "500m"
-        memory: "1Gi"
-```
+        // Page navigation
+        function showPage(pageId) {
+            document.querySelectorAll('.page').forEach(page => {
+                page.classList.remove('active');
+            });
+            document.getElementById(pageId).classList.add('active');
+        }
 
-## Configuration File Usage
+        // Login functionality
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const loginData = {
+                username: formData.get('username'),
+                password: formData.get('password')
+            };
 
-### Python Code to Load Configuration
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(loginData)
+                });
 
-```python
-import yaml
-import json
-from pathlib import Path
-from typing import Dict, Any, Union
+                const result = await response.json();
+                
+                if (result.success) {
+                    sessionToken = result.token;
+                    showPage('config-page');
+                    document.getElementById('login-error').textContent = '';
+                } else {
+                    document.getElementById('login-error').textContent = result.message;
+                }
+            } catch (error) {
+                document.getElementById('login-error').textContent = 'Login failed. Please try again.';
+            }
+        });
 
-def load_config_file(config_path: Union[str, Path]) -> Dict[str, Any]:
-    """Load configuration from YAML or JSON file"""
-    config_path = Path(config_path)
-    
-    if not config_path.exists():
-        raise FileNotFoundError(f"Configuration file not found: {config_path}")
-    
-    with open(config_path, 'r') as f:
-        if config_path.suffix.lower() in ['.yaml', '.yml']:
-            return yaml.safe_load(f)
-        elif config_path.suffix.lower() == '.json':
-            return json.load(f)
-        else:
-            raise ValueError(f"Unsupported file format: {config_path.suffix}")
+        // Configuration form
+        document.getElementById('config-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            
+            currentConfig = {
+                runtime: formData.get('runtime'),
+                serviceName: formData.get('serviceName'),
+                s3Url: formData.get('s3Url'),
+                gpuRequest: formData.get('gpuRequest'),
+                cpuRequest: formData.get('cpuRequest'),
+                memoryRequest: formData.get('memoryRequest')
+            };
 
-def config_to_inference_service(config_dict: Dict[str, Any]) -> InferenceServiceConfig:
-    """Convert configuration dictionary to InferenceServiceConfig"""
-    
-    # Extract basic metadata
-    metadata = config_dict.get('metadata', {})
-    storage = config_dict.get('storage', {})
-    runtime = config_dict.get('runtime', {})
-    resources_dict = config_dict.get('resources', {})
-    scaling_dict = config_dict.get('scaling', {})
-    kubernetes = config_dict.get('kubernetes', {})
-    advanced = config_dict.get('advanced', {})
-    
-    # Create resource configuration
-    resources = ResourceConfig(
-        cpu_request=resources_dict.get('cpu_request', '100m'),
-        memory_request=resources_dict.get('memory_request', '512Mi'),
-        cpu_limit=resources_dict.get('cpu_limit', '1'),
-        memory_limit=resources_dict.get('memory_limit', '2Gi'),
-        gpu_limit=resources_dict.get('gpu_limit')
-    )
-    
-    # Create scaling configuration
-    scaling = ScalingConfig(
-        min_replicas=scaling_dict.get('min_replicas', 1),
-        max_replicas=scaling_dict.get('max_replicas', 3),
-        scale_target=scaling_dict.get('scale_target'),
-        scale_metric=scaling_dict.get('scale_metric', 'concurrency')
-    )
-    
-    # Create cluster runtime configuration if specified
-    cluster_runtime = None
-    if runtime.get('type') == 'cluster' and 'cluster_runtime' in runtime:
-        cr = runtime['cluster_runtime']
-        cluster_runtime = ClusterServingRuntimeConfig(
-            runtime_name=cr.get('runtime_name', 'triton-server'),
-            runtime_version=cr.get('runtime_version'),
-            protocol_version=cr.get('protocol_version', 'v1'),
-            model_format=cr.get('model_format')
-        )
-    
-    # Create main configuration
-    inference_config = InferenceServiceConfig(
-        name=metadata.get('name', 'default-service'),
-        storage_uri=storage.get('uri', ''),
-        namespace=metadata.get('namespace', 'default'),
-        framework=Framework(runtime.get('framework', 'triton')),
-        deployment_mode=DeploymentMode(runtime.get('deployment_mode', 'Knative')),
-        runtime_type=RuntimeType(runtime.get('type', 'cluster')),
-        cluster_runtime=cluster_runtime,
-        protocol_version=runtime.get('protocol_version', 'v1'),
-        custom_image=runtime.get('custom_image'),
-        env_vars=config_dict.get('environment'),
-        resources=resources,
-        scaling=scaling,
-        annotations=config_dict.get('annotations'),
-        labels=config_dict.get('labels'),
-        service_account=kubernetes.get('service_account'),
-        node_selector=kubernetes.get('node_selector'),
-        tolerations=kubernetes.get('tolerations'),
-        canary_traffic_percent=advanced.get('canary_traffic_percent'),
-        transformer_config=advanced.get('transformer'),
-        explainer_config=advanced.get('explainer')
-    )
-    
-    return inference_config
+            try {
+                const response = await fetch('/api/generate-yaml', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(currentConfig)
+                });
 
-# Usage example
-def main_with_config():
-    """Main function using configuration file"""
-    
-    # Load configuration
-    config_dict = load_config_file('kserve-config.yaml')
-    
-    # Convert to InferenceServiceConfig
-    inference_config = config_to_inference_service(config_dict)
-    
-    # Create client and generate template
-    client = KServeTemplatingClient()
-    
-    # Generate template
-    yaml_output = client.render_inference_service_yaml(inference_config)
-    print(yaml_output)
-    
-    # Save to file
-    filepath = client.save_template_to_file(inference_config)
-    print(f"Template saved to: {filepath}")
-    
-    # Validate
-    validation = client.validate_template(inference_config)
-    if validation['valid']:
-        print("✅ Template validation passed")
-    else:
-        print("❌ Template validation failed:")
-        for error in validation['errors']:
-            print(f"  - {error}")
+                const result = await response.json();
+                
+                if (result.success) {
+                    displayConfigSummary();
+                    document.getElementById('yaml-content').textContent = result.yaml;
+                    showPage('yaml-page');
+                }
+            } catch (error) {
+                alert('Failed to generate YAML. Please try again.');
+            }
+        });
 
-if __name__ == "__main__":
-    main_with_config()
-```
+        function displayConfigSummary() {
+            const summary = document.getElementById('config-summary');
+            summary.innerHTML = `
+                <div class="config-item">
+                    <span class="config-label">Runtime:</span>
+                    <span class="config-value">${currentConfig.runtime}</span>
+                </div>
+                <div class="config-item">
+                    <span class="config-label">Service Name:</span>
+                    <span class="config-value">${currentConfig.serviceName}</span>
+                </div>
+                <div class="config-item">
+                    <span class="config-label">Model Location:</span>
+                    <span class="config-value">${currentConfig.s3Url}</span>
+                </div>
+                <div class="config-item">
+                    <span class="config-label">Resources:</span>
+                    <span class="config-value">${currentConfig.gpuRequest} GPU, ${currentConfig.cpuRequest} CPU, ${currentConfig.memoryRequest} Memory</span>
+                </div>
+            `;
+        }
 
-## CLI Usage with Configuration Files
+        function goBack() {
+            showPage('config-page');
+        }
 
-```bash
-# Basic usage with config file
-python kserve_templating.py --config kserve-config.yaml
+        async function deployService() {
+            showPage('deployment-page');
+            deploymentStartTime = Date.now();
+            
+            // Start deployment animation
+            let stage = 0;
+            const deploymentInterval = setInterval(async () => {
+                try {
+                    const response = await fetch(`/api/deployment-status?stage=${stage}`);
+                    const status = await response.json();
+                    
+                    document.getElementById('deployment-stage').textContent = status.message;
+                    document.getElementById('progress-fill').style.width = `${status.progress}%`;
+                    
+                    if (status.completed) {
+                        clearInterval(deploymentInterval);
+                        completeDeployment();
+                    } else {
+                        stage++;
+                    }
+                } catch (error) {
+                    clearInterval(deploymentInterval);
+                    alert('Deployment failed. Please try again.');
+                }
+            }, 2000);
+        }
 
-# Override specific parameters
-python kserve_templating.py --config kserve-config.yaml --namespace production --min-replicas 3
+        async function completeDeployment() {
+            try {
+                const response = await fetch('/api/deploy', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        yaml: document.getElementById('yaml-content').textContent,
+                        serviceName: currentConfig.serviceName
+                    })
+                });
 
-# Use JSON config
-python kserve_templating.py --config kserve-config.json --output-dir ./production-templates
-```
+                const result = await response.json();
+                
+                if (result.success) {
+                    const deploymentTime = Math.round((Date.now() - deploymentStartTime) / 1000);
+                    
+                    document.getElementById('deployment-loading').style.display = 'none';
+                    document.getElementById('deployment-complete').style.display = 'block';
+                    document.getElementById('service-endpoint').textContent = result.endpoint;
+                    document.getElementById('deployment-time').textContent = `${deploymentTime} seconds`;
+                }
+            } catch (error) {
+                alert('Deployment completed with errors. Please check the logs.');
+            }
+        }
 
-## Configuration Validation Schema
+        function startOver() {
+            currentConfig = {};
+            document.getElementById('config-form').reset();
+            document.getElementById('deployment-loading').style.display = 'block';
+            document.getElementById('deployment-complete').style.display = 'none';
+            document.getElementById('progress-fill').style.width = '0%';
+            showPage('config-page');
+        }
 
-```yaml
-# schema.yaml - JSON Schema for validation
-$schema: "http://json-schema.org/draft-07/schema#"
-type: object
-required: ["metadata", "storage", "runtime"]
-properties:
-  metadata:
-    type: object
-    required: ["name"]
-    properties:
-      name: 
-        type: string
-        pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
-      namespace:
-        type: string
-        default: "default"
-  
-  storage:
-    type: object
-    required: ["uri"]
-    properties:
-      uri:
-        type: string
-        pattern: "^(s3://|gs://|hdfs://|file://|pvc://)"
-  
-  runtime:
-    type: object
-    properties:
-      framework:
-        type: string
-        enum: ["triton"]
-      type:
-        type: string
-        enum: ["builtin", "cluster", "custom"]
-      deployment_mode:
-        type: string
-        enum: ["Knative", "RawDeployment"]
-  
-  resources:
-    type: object
-    properties:
-      cpu_request: { type: string }
-      memory_request: { type: string }
-      cpu_limit: { type: string }
-      memory_limit: { type: string }
-      gpu_limit: { type: ["string", "null"] }
-```
-
-These configuration files provide a comprehensive way to define all KServe parameters in a structured, reusable format. You can customize them based on your specific model serving requirements and load them programmatically into the KServe template generator.
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            showPage('login-page');
+        });
+    </script>
+</body>
+</html>
