@@ -1,238 +1,414 @@
-from flask import Flask, request, jsonify, render_template_string
-from flask_cors import CORS
-import time
-import yaml
-import os
+name: Deploy Grafana Dashboard for Triton Inference Server
 
-app = Flask(__name__)
-CORS(app)
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dashboard_name:
+        description: 'Dashboard name'
+        required: false
+        default: 'triton-inference-monitoring'
 
-# Simple in-memory user storage (use a proper database in production)
-users = {
-    "admin": {
-        "password": "password123",
-        "name": "Administrator",
-        "email": "admin@company.com",
-        "role": "admin",
-        "namespace": "default",
-        "created": "2024-01-15"
-    },
-    "user": {
-        "password": "test123",
-        "name": "John Doe",
-        "email": "john.doe@company.com",
-        "role": "developer",
-        "namespace": "dev-team",
-        "created": "2024-02-20"
-    }
-}
+env:
+  GRAFANA_URL: ${{ secrets.GRAFANA_URL }}
+  GRAFANA_API_KEY: ${{ secrets.GRAFANA_API_KEY }}
 
-# Mock inference services data
-inference_services = {
-    "default": [
+jobs:
+  deploy-dashboard:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Install dependencies
+      run: |
+        npm install -g @grafana/toolkit
+
+    - name: Validate Grafana URL and API Key
+      run: |
+        if [ -z "${{ env.GRAFANA_URL }}" ]; then
+          echo "Error: GRAFANA_URL secret not set"
+          exit 1
+        fi
+        if [ -z "${{ env.GRAFANA_API_KEY }}" ]; then
+          echo "Error: GRAFANA_API_KEY secret not set"
+          exit 1
+        fi
+
+    - name: Create dashboard directory
+      run: mkdir -p grafana/dashboards
+
+    - name: Generate Triton Dashboard JSON
+      run: |
+        cat > grafana/dashboards/triton-dashboard.json << 'EOF'
         {
-            "name": "llama-7b-service",
-            "status": "Running",
-            "runtime": "pytorch",
-            "created": "2024-07-10",
-            "replicas": 2,
-            "endpoint": "http://llama-7b-service.default.svc.cluster.local/v1/models/llama-7b-service",
-            "resources": {"gpu": 2, "cpu": "4", "memory": "8Gi"}
-        },
-        {
-            "name": "bert-classifier",
-            "status": "Running",
-            "runtime": "tensorflow",
-            "created": "2024-07-12",
-            "replicas": 1,
-            "endpoint": "http://bert-classifier.default.svc.cluster.local/v1/models/bert-classifier",
-            "resources": {"gpu": 1, "cpu": "2", "memory": "4Gi"}
-        },
-        {
-            "name": "image-detection",
-            "status": "Pending",
-            "runtime": "onnx",
-            "created": "2024-07-15",
-            "replicas": 1,
-            "endpoint": "http://image-detection.default.svc.cluster.local/v1/models/image-detection",
-            "resources": {"gpu": 1, "cpu": "2", "memory": "6Gi"}
-        }
-    ],
-    "dev-team": [
-        {
-            "name": "sentiment-analyzer",
-            "status": "Running",
-            "runtime": "pytorch",
-            "created": "2024-07-08",
-            "replicas": 1,
-            "endpoint": "http://sentiment-analyzer.dev-team.svc.cluster.local/v1/models/sentiment-analyzer",
-            "resources": {"gpu": 1, "cpu": "2", "memory": "4Gi"}
-        },
-        {
-            "name": "chatbot-model",
-            "status": "Error",
-            "runtime": "pytorch",
-            "created": "2024-07-14",
-            "replicas": 0,
-            "endpoint": "http://chatbot-model.dev-team.svc.cluster.local/v1/models/chatbot-model",
-            "resources": {"gpu": 2, "cpu": "4", "memory": "8Gi"}
-        }
-    ]
-}
-
-# Store active sessions (use Redis or proper session management in production)
-sessions = {}
-
-@app.route('/')
-def index():
-    return render_template_string(open('index.html').read())
-
-@app.route('/api/login', methods=['POST'])
-def login():
-    data = request.get_json()
-    username = data.get('username')
-    password = data.get('password')
-    
-    if username in users and users[username]["password"] == password:
-        session_token = f"session_{username}_{int(time.time())}"
-        sessions[session_token] = username
-        return jsonify({
-            "success": True,
-            "token": session_token,
-            "user": {
-                "username": username,
-                "name": users[username]["name"],
-                "email": users[username]["email"],
-                "role": users[username]["role"],
-                "namespace": users[username]["namespace"],
-                "created": users[username]["created"]
+          "dashboard": {
+            "id": null,
+            "title": "Triton Inference Server Monitoring",
+            "tags": ["triton", "inference", "ml"],
+            "timezone": "browser",
+            "panels": [
+              {
+                "id": 1,
+                "title": "Request Rate",
+                "type": "stat",
+                "targets": [
+                  {
+                    "expr": "rate(nv_inference_request_success_total[5m])",
+                    "legendFormat": "Success Rate",
+                    "refId": "A"
+                  },
+                  {
+                    "expr": "rate(nv_inference_request_failure_total[5m])",
+                    "legendFormat": "Failure Rate",
+                    "refId": "B"
+                  }
+                ],
+                "fieldConfig": {
+                  "defaults": {
+                    "unit": "reqps",
+                    "min": 0
+                  }
+                },
+                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+              },
+              {
+                "id": 2,
+                "title": "Request Duration",
+                "type": "timeseries",
+                "targets": [
+                  {
+                    "expr": "histogram_quantile(0.50, rate(nv_inference_request_duration_us_bucket[5m]))",
+                    "legendFormat": "p50",
+                    "refId": "A"
+                  },
+                  {
+                    "expr": "histogram_quantile(0.95, rate(nv_inference_request_duration_us_bucket[5m]))",
+                    "legendFormat": "p95",
+                    "refId": "B"
+                  },
+                  {
+                    "expr": "histogram_quantile(0.99, rate(nv_inference_request_duration_us_bucket[5m]))",
+                    "legendFormat": "p99",
+                    "refId": "C"
+                  }
+                ],
+                "fieldConfig": {
+                  "defaults": {
+                    "unit": "µs",
+                    "min": 0
+                  }
+                },
+                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+              },
+              {
+                "id": 3,
+                "title": "Queue Time",
+                "type": "timeseries",
+                "targets": [
+                  {
+                    "expr": "histogram_quantile(0.50, rate(nv_inference_queue_duration_us_bucket[5m]))",
+                    "legendFormat": "p50 Queue Time",
+                    "refId": "A"
+                  },
+                  {
+                    "expr": "histogram_quantile(0.95, rate(nv_inference_queue_duration_us_bucket[5m]))",
+                    "legendFormat": "p95 Queue Time",
+                    "refId": "B"
+                  }
+                ],
+                "fieldConfig": {
+                  "defaults": {
+                    "unit": "µs",
+                    "min": 0
+                  }
+                },
+                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+              },
+              {
+                "id": 4,
+                "title": "Compute Time",
+                "type": "timeseries",
+                "targets": [
+                  {
+                    "expr": "histogram_quantile(0.50, rate(nv_inference_compute_duration_us_bucket[5m]))",
+                    "legendFormat": "p50 Compute Time",
+                    "refId": "A"
+                  },
+                  {
+                    "expr": "histogram_quantile(0.95, rate(nv_inference_compute_duration_us_bucket[5m]))",
+                    "legendFormat": "p95 Compute Time",
+                    "refId": "B"
+                  }
+                ],
+                "fieldConfig": {
+                  "defaults": {
+                    "unit": "µs",
+                    "min": 0
+                  }
+                },
+                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+              },
+              {
+                "id": 5,
+                "title": "GPU Utilization",
+                "type": "timeseries",
+                "targets": [
+                  {
+                    "expr": "nv_gpu_utilization",
+                    "legendFormat": "GPU {{gpu_uuid}}",
+                    "refId": "A"
+                  }
+                ],
+                "fieldConfig": {
+                  "defaults": {
+                    "unit": "percent",
+                    "min": 0,
+                    "max": 100
+                  }
+                },
+                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}
+              },
+              {
+                "id": 6,
+                "title": "GPU Memory Usage",
+                "type": "timeseries",
+                "targets": [
+                  {
+                    "expr": "nv_gpu_memory_used_bytes / nv_gpu_memory_total_bytes * 100",
+                    "legendFormat": "GPU {{gpu_uuid}} Memory",
+                    "refId": "A"
+                  }
+                ],
+                "fieldConfig": {
+                  "defaults": {
+                    "unit": "percent",
+                    "min": 0,
+                    "max": 100
+                  }
+                },
+                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16}
+              },
+              {
+                "id": 7,
+                "title": "Model States",
+                "type": "stat",
+                "targets": [
+                  {
+                    "expr": "nv_model_inference_count",
+                    "legendFormat": "{{model}} - {{version}}",
+                    "refId": "A"
+                  }
+                ],
+                "fieldConfig": {
+                  "defaults": {
+                    "unit": "short",
+                    "min": 0
+                  }
+                },
+                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24}
+              },
+              {
+                "id": 8,
+                "title": "Error Rate",
+                "type": "timeseries",
+                "targets": [
+                  {
+                    "expr": "rate(nv_inference_request_failure_total[5m]) / rate(nv_inference_request_success_total[5m] + nv_inference_request_failure_total[5m]) * 100",
+                    "legendFormat": "Error Rate",
+                    "refId": "A"
+                  }
+                ],
+                "fieldConfig": {
+                  "defaults": {
+                    "unit": "percent",
+                    "min": 0,
+                    "max": 100
+                  }
+                },
+                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24}
+              },
+              {
+                "id": 9,
+                "title": "Concurrent Requests",
+                "type": "timeseries",
+                "targets": [
+                  {
+                    "expr": "nv_inference_pending_request_count",
+                    "legendFormat": "Pending Requests",
+                    "refId": "A"
+                  },
+                  {
+                    "expr": "nv_inference_exec_count",
+                    "legendFormat": "Executing Requests",
+                    "refId": "B"
+                  }
+                ],
+                "fieldConfig": {
+                  "defaults": {
+                    "unit": "short",
+                    "min": 0
+                  }
+                },
+                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32}
+              },
+              {
+                "id": 10,
+                "title": "Batch Size",
+                "type": "timeseries",
+                "targets": [
+                  {
+                    "expr": "nv_inference_batch_size",
+                    "legendFormat": "Batch Size - {{model}}",
+                    "refId": "A"
+                  }
+                ],
+                "fieldConfig": {
+                  "defaults": {
+                    "unit": "short",
+                    "min": 0
+                  }
+                },
+                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32}
+              }
+            ],
+            "time": {
+              "from": "now-1h",
+              "to": "now"
             },
-            "message": "Login successful"
-        })
-    else:
-        return jsonify({
-            "success": False,
-            "message": "Invalid credentials"
-        }), 401
-
-@app.route('/api/services', methods=['GET'])
-def get_services():
-    # In a real app, you'd verify the session token
-    username = request.args.get('username', 'admin')
-    if username in users:
-        namespace = users[username]["namespace"]
-        services = inference_services.get(namespace, [])
-        return jsonify({
-            "success": True,
-            "services": services,
-            "namespace": namespace
-        })
-    else:
-        return jsonify({
-            "success": False,
-            "message": "User not found"
-        }), 404
-
-@app.route('/api/generate-yaml', methods=['POST'])
-def generate_yaml():
-    data = request.get_json()
-    
-    # Generate Kubernetes inference service YAML
-    yaml_content = {
-        "apiVersion": "serving.kserve.io/v1beta1",
-        "kind": "InferenceService",
-        "metadata": {
-            "name": data.get('serviceName', 'inference-service'),
-            "namespace": "default"
-        },
-        "spec": {
-            "predictor": {
-                "containers": [
-                    {
-                        "name": "predictor",
-                        "image": f"inference-runtime:{data.get('runtime', 'pytorch')}",
-                        "env": [
-                            {
-                                "name": "MODEL_PATH",
-                                "value": data.get('s3Url', 's3://model-bucket/model')
-                            }
-                        ],
-                        "resources": {
-                            "requests": {
-                                "cpu": data.get('cpuRequest', '1'),
-                                "memory": data.get('memoryRequest', '2Gi'),
-                                "nvidia.com/gpu": data.get('gpuRequest', '1')
-                            },
-                            "limits": {
-                                "cpu": data.get('cpuRequest', '1'),
-                                "memory": data.get('memoryRequest', '2Gi'),
-                                "nvidia.com/gpu": data.get('gpuRequest', '1')
-                            }
-                        }
-                    }
-                ]
-            }
+            "refresh": "30s",
+            "schemaVersion": 30,
+            "version": 1,
+            "editable": true
+          },
+          "folderId": null,
+          "overwrite": true
         }
-    }
-    
-    try:
-        yaml_string = yaml.dump(yaml_content, default_flow_style=False)
-        return jsonify({
-            "success": True,
-            "yaml": yaml_string
-        })
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        EOF
 
-@app.route('/api/deploy', methods=['POST'])
-def deploy():
-    data = request.get_json()
-    yaml_content = data.get('yaml')
-    
-    # Simulate deployment process
-    time.sleep(2)  # Simulate deployment time
-    
-    return jsonify({
-        "success": True,
-        "message": "Deployment completed successfully!",
-        "status": "Running",
-        "endpoint": f"http://inference-service.default.svc.cluster.local/v1/models/{data.get('serviceName', 'inference-service')}"
-    })
+    - name: Deploy Dashboard to Grafana
+      run: |
+        # Check if dashboard already exists
+        DASHBOARD_TITLE="Triton Inference Server Monitoring"
+        EXISTING_DASHBOARD=$(curl -s -H "Authorization: Bearer ${{ env.GRAFANA_API_KEY }}" \
+          "${{ env.GRAFANA_URL }}/api/search?query=$DASHBOARD_TITLE" | jq -r '.[0].uid // empty')
+        
+        if [ ! -z "$EXISTING_DASHBOARD" ]; then
+          echo "Dashboard exists with UID: $EXISTING_DASHBOARD"
+          # Update existing dashboard
+          curl -X POST \
+            -H "Authorization: Bearer ${{ env.GRAFANA_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d @grafana/dashboards/triton-dashboard.json \
+            "${{ env.GRAFANA_URL }}/api/dashboards/uid/$EXISTING_DASHBOARD"
+        else
+          echo "Creating new dashboard"
+          curl -X POST \
+            -H "Authorization: Bearer ${{ env.GRAFANA_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d @grafana/dashboards/triton-dashboard.json \
+            "${{ env.GRAFANA_URL }}/api/dashboards/db"
+        fi
 
-@app.route('/api/deployment-status', methods=['GET'])
-def deployment_status():
-    # Simulate deployment progress
-    import random
-    stages = [
-        "Validating YAML configuration...",
-        "Creating Kubernetes resources...",
-        "Pulling container images...",
-        "Allocating GPU resources...",
-        "Starting inference service...",
-        "Running health checks...",
-        "Deployment completed!"
-    ]
-    
-    stage = request.args.get('stage', 0)
-    stage = int(stage)
-    
-    if stage < len(stages):
-        return jsonify({
-            "stage": stage,
-            "message": stages[stage],
-            "progress": int((stage / len(stages)) * 100),
-            "completed": False
-        })
-    else:
-        return jsonify({
-            "stage": stage,
-            "message": "Deployment successful!",
-            "progress": 100,
-            "completed": True
-        })
+    - name: Create Data Source (if not exists)
+      run: |
+        # Check if Prometheus data source exists
+        DATASOURCE_NAME="prometheus"
+        EXISTING_DS=$(curl -s -H "Authorization: Bearer ${{ env.GRAFANA_API_KEY }}" \
+          "${{ env.GRAFANA_URL }}/api/datasources/name/$DATASOURCE_NAME" | jq -r '.id // empty')
+        
+        if [ -z "$EXISTING_DS" ]; then
+          echo "Creating Prometheus data source"
+          curl -X POST \
+            -H "Authorization: Bearer ${{ env.GRAFANA_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "name": "prometheus",
+              "type": "prometheus",
+              "url": "http://prometheus:9090",
+              "access": "proxy",
+              "basicAuth": false,
+              "isDefault": true
+            }' \
+            "${{ env.GRAFANA_URL }}/api/datasources"
+        else
+          echo "Prometheus data source already exists with ID: $EXISTING_DS"
+        fi
 
-if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    - name: Setup Alerts (Optional)
+      run: |
+        # Create alert rules for critical metrics
+        cat > grafana/alerts.json << 'EOF'
+        {
+          "title": "Triton High Error Rate",
+          "condition": "A",
+          "data": [
+            {
+              "refId": "A",
+              "queryType": "",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              },
+              "model": {
+                "expr": "rate(nv_inference_request_failure_total[5m]) / rate(nv_inference_request_success_total[5m] + nv_inference_request_failure_total[5m]) * 100 > 5"
+              }
+            }
+          ],
+          "noDataState": "NoData",
+          "execErrState": "Alerting",
+          "for": "5m",
+          "annotations": {
+            "description": "Triton inference server error rate is above 5%",
+            "summary": "High error rate detected"
+          },
+          "labels": {
+            "severity": "warning"
+          }
+        }
+        EOF
+        
+        # Deploy alert rule
+        curl -X POST \
+          -H "Authorization: Bearer ${{ env.GRAFANA_API_KEY }}" \
+          -H "Content-Type: application/json" \
+          -d @grafana/alerts.json \
+          "${{ env.GRAFANA_URL }}/api/ruler/grafana/api/v1/rules/default"
+
+    - name: Verify Dashboard Deployment
+      run: |
+        # Get dashboard URL
+        DASHBOARD_URL=$(curl -s -H "Authorization: Bearer ${{ env.GRAFANA_API_KEY }}" \
+          "${{ env.GRAFANA_URL }}/api/search?query=Triton%20Inference%20Server%20Monitoring" | \
+          jq -r '.[0].url // empty')
+        
+        if [ ! -z "$DASHBOARD_URL" ]; then
+          echo "✅ Dashboard deployed successfully!"
+          echo "Dashboard URL: ${{ env.GRAFANA_URL }}$DASHBOARD_URL"
+        else
+          echo "❌ Dashboard deployment failed"
+          exit 1
+        fi
+
+    - name: Create deployment summary
+      run: |
+        echo "## 📊 Grafana Dashboard Deployment Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Dashboard Details:" >> $GITHUB_STEP_SUMMARY
+        echo "- **Name**: Triton Inference Server Monitoring" >> $GITHUB_STEP_SUMMARY
+        echo "- **URL**: ${{ env.GRAFANA_URL }}/d/triton-inference-monitoring" >> $GITHUB_STEP_SUMMARY
+        echo "- **Deployment Time**: $(date)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Key Metrics Monitored:" >> $GITHUB_STEP_SUMMARY
+        echo "- Request Rate & Success/Failure Rates" >> $GITHUB_STEP_SUMMARY
+        echo "- Request Duration (p50, p95, p99)" >> $GITHUB_STEP_SUMMARY
+        echo "- Queue Time & Compute Time" >> $GITHUB_STEP_SUMMARY
+        echo "- GPU Utilization & Memory Usage" >> $GITHUB_STEP_SUMMARY
+        echo "- Model States & Error Rates" >> $GITHUB_STEP_SUMMARY
+        echo "- Concurrent Requests & Batch Sizes" >> $GITHUB_STEP_SUMMARY
