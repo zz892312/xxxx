@@ -190,6 +190,183 @@
             flex: 1;
         }
 
+        .dashboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 40px;
+            padding: 20px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-radius: 12px;
+            border: 1px solid #dee2e6;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .user-avatar {
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            color: white;
+        }
+
+        .user-details h2 {
+            margin: 0 0 5px 0;
+            font-size: 1.5em;
+            color: #333;
+        }
+
+        .user-details p {
+            margin: 0 0 10px 0;
+            color: #666;
+            font-size: 14px;
+        }
+
+        .user-badges {
+            display: flex;
+            gap: 10px;
+        }
+
+        .badge {
+            background: #667eea;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .badge.admin {
+            background: #e74c3c;
+        }
+
+        .badge.developer {
+            background: #27ae60;
+        }
+
+        .dashboard-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .services-section h2 {
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .services-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 20px;
+        }
+
+        .service-card {
+            background: white;
+            border: 1px solid #e1e5e9;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+        }
+
+        .service-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+
+        .service-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .service-name {
+            font-size: 1.2em;
+            font-weight: 600;
+            color: #333;
+            margin: 0;
+        }
+
+        .service-status {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .status-running {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-pending {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .status-error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .service-details {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .service-detail {
+            font-size: 14px;
+        }
+
+        .service-detail-label {
+            color: #666;
+            font-weight: 500;
+        }
+
+        .service-detail-value {
+            color: #333;
+            font-family: monospace;
+        }
+
+        .service-endpoint {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 12px;
+            color: #495057;
+            word-break: break-all;
+            margin-top: 10px;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+        }
+
         .completion-message {
             background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%);
             color: white;
@@ -231,8 +408,56 @@
 </head>
 <body>
     <div class="container">
+        <!-- Login Page -->
+        <div class="page active" id="login-page">
+            <h1>🚀 Inference Service Deployment</h1>
+            <form id="login-form">
+                <div class="form-group">
+                    <label for="username">Username</label>
+                    <input type="text" id="username" name="username" required>
+                </div>
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" required>
+                </div>
+                <button type="submit" class="btn">Login</button>
+                <div id="login-error" class="error"></div>
+            </form>
+            <div style="margin-top: 20px; font-size: 14px; color: #666; text-align: center;">
+                Demo credentials: admin/password123 or user/test123
+            </div>
+        </div>
+
+        <!-- Dashboard Page -->
+        <div class="page" id="dashboard-page">
+            <div class="dashboard-header">
+                <div class="user-info">
+                    <div class="user-avatar">👤</div>
+                    <div class="user-details">
+                        <h2 id="user-name">Loading...</h2>
+                        <p id="user-email">Loading...</p>
+                        <div class="user-badges">
+                            <span class="badge" id="user-role">Loading...</span>
+                            <span class="badge" id="user-namespace">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="dashboard-actions">
+                    <button class="btn btn-primary" onclick="showPage('config-page')">Deploy New Service</button>
+                    <button class="btn btn-secondary" onclick="refreshServices()">Refresh</button>
+                </div>
+            </div>
+
+            <div class="services-section">
+                <h2>Inference Services</h2>
+                <div class="services-grid" id="services-grid">
+                    <!-- Services will be populated here -->
+                </div>
+            </div>
+        </div>
+
         <!-- Configuration Wizard -->
-        <div class="page active" id="config-page">
+        <div class="page" id="config-page">
             <h1>⚙️ Configuration Wizard</h1>
             <form id="config-form">
                 <div class="form-group">
@@ -334,6 +559,7 @@
     <script>
         let currentConfig = {};
         let sessionToken = null;
+        let currentUser = null;
         let deploymentStartTime = null;
 
         // Page navigation
@@ -344,7 +570,110 @@
             document.getElementById(pageId).classList.add('active');
         }
 
-        // Skip login - go directly to config
+        // Login functionality
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const loginData = {
+                username: formData.get('username'),
+                password: formData.get('password')
+            };
+
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(loginData)
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    sessionToken = result.token;
+                    currentUser = result.user;
+                    displayUserInfo();
+                    loadServices();
+                    showPage('dashboard-page');
+                    document.getElementById('login-error').textContent = '';
+                } else {
+                    document.getElementById('login-error').textContent = result.message;
+                }
+            } catch (error) {
+                document.getElementById('login-error').textContent = 'Login failed. Please try again.';
+            }
+        });
+
+        function displayUserInfo() {
+            if (!currentUser) return;
+            
+            document.getElementById('user-name').textContent = currentUser.name;
+            document.getElementById('user-email').textContent = currentUser.email;
+            document.getElementById('user-role').textContent = currentUser.role;
+            document.getElementById('user-role').className = `badge ${currentUser.role}`;
+            document.getElementById('user-namespace').textContent = `namespace: ${currentUser.namespace}`;
+        }
+
+        async function loadServices() {
+            if (!currentUser) return;
+            
+            try {
+                const response = await fetch(`/api/services?username=${currentUser.username}`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    displayServices(result.services);
+                }
+            } catch (error) {
+                console.error('Failed to load services:', error);
+            }
+        }
+
+        function displayServices(services) {
+            const servicesGrid = document.getElementById('services-grid');
+            
+            if (services.length === 0) {
+                servicesGrid.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🚀</div>
+                        <h3>No Inference Services</h3>
+                        <p>Deploy your first inference service to get started!</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            servicesGrid.innerHTML = services.map(service => `
+                <div class="service-card">
+                    <div class="service-header">
+                        <h3 class="service-name">${service.name}</h3>
+                        <span class="service-status status-${service.status.toLowerCase()}">${service.status}</span>
+                    </div>
+                    <div class="service-details">
+                        <div class="service-detail">
+                            <div class="service-detail-label">Runtime:</div>
+                            <div class="service-detail-value">${service.runtime}</div>
+                        </div>
+                        <div class="service-detail">
+                            <div class="service-detail-label">Replicas:</div>
+                            <div class="service-detail-value">${service.replicas}</div>
+                        </div>
+                        <div class="service-detail">
+                            <div class="service-detail-label">GPU:</div>
+                            <div class="service-detail-value">${service.resources.gpu}</div>
+                        </div>
+                        <div class="service-detail">
+                            <div class="service-detail-label">Memory:</div>
+                            <div class="service-detail-value">${service.resources.memory}</div>
+                        </div>
+                    </div>
+                    <div class="service-endpoint">${service.endpoint}</div>
+                </div>
+            `).join('');
+        }
+
+        function refreshServices() {
+            loadServices();
+        }
 
         // Configuration form
         document.getElementById('config-form').addEventListener('submit', async (e) => {
@@ -464,161 +793,14 @@
             document.getElementById('deployment-loading').style.display = 'block';
             document.getElementById('deployment-complete').style.display = 'none';
             document.getElementById('progress-fill').style.width = '0%';
-            showPage('config-page');
+            showPage('dashboard-page');
+            loadServices(); // Refresh services after deployment
         }
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
-            showPage('config-page');
+            showPage('login-page');
         });
     </script>
 </body>
 </html>
-
-
-
-from flask import Flask, request, jsonify, render_template_string
-from flask_cors import CORS
-import time
-import yaml
-import os
-
-app = Flask(__name__)
-CORS(app)
-
-# Simple in-memory user storage (use a proper database in production)
-users = {
-    "admin": "password123",
-    "user": "test123"
-}
-
-# Store active sessions (use Redis or proper session management in production)
-sessions = {}
-
-@app.route('/')
-def index():
-    return render_template_string(open('index.html').read())
-
-@app.route('/api/login', methods=['POST'])
-def login():
-    data = request.get_json()
-    username = data.get('username')
-    password = data.get('password')
-    
-    if username in users and users[username] == password:
-        session_token = f"session_{username}_{int(time.time())}"
-        sessions[session_token] = username
-        return jsonify({
-            "success": True,
-            "token": session_token,
-            "message": "Login successful"
-        })
-    else:
-        return jsonify({
-            "success": False,
-            "message": "Invalid credentials"
-        }), 401
-
-@app.route('/api/generate-yaml', methods=['POST'])
-def generate_yaml():
-    data = request.get_json()
-    
-    # Generate Kubernetes inference service YAML
-    yaml_content = {
-        "apiVersion": "serving.kserve.io/v1beta1",
-        "kind": "InferenceService",
-        "metadata": {
-            "name": data.get('serviceName', 'inference-service'),
-            "namespace": "default"
-        },
-        "spec": {
-            "predictor": {
-                "containers": [
-                    {
-                        "name": "predictor",
-                        "image": f"inference-runtime:{data.get('runtime', 'pytorch')}",
-                        "env": [
-                            {
-                                "name": "MODEL_PATH",
-                                "value": data.get('s3Url', 's3://model-bucket/model')
-                            }
-                        ],
-                        "resources": {
-                            "requests": {
-                                "cpu": data.get('cpuRequest', '1'),
-                                "memory": data.get('memoryRequest', '2Gi'),
-                                "nvidia.com/gpu": data.get('gpuRequest', '1')
-                            },
-                            "limits": {
-                                "cpu": data.get('cpuRequest', '1'),
-                                "memory": data.get('memoryRequest', '2Gi'),
-                                "nvidia.com/gpu": data.get('gpuRequest', '1')
-                            }
-                        }
-                    }
-                ]
-            }
-        }
-    }
-    
-    try:
-        yaml_string = yaml.dump(yaml_content, default_flow_style=False)
-        return jsonify({
-            "success": True,
-            "yaml": yaml_string
-        })
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
-
-@app.route('/api/deploy', methods=['POST'])
-def deploy():
-    data = request.get_json()
-    yaml_content = data.get('yaml')
-    
-    # Simulate deployment process
-    time.sleep(2)  # Simulate deployment time
-    
-    return jsonify({
-        "success": True,
-        "message": "Deployment completed successfully!",
-        "status": "Running",
-        "endpoint": f"http://inference-service.default.svc.cluster.local/v1/models/{data.get('serviceName', 'inference-service')}"
-    })
-
-@app.route('/api/deployment-status', methods=['GET'])
-def deployment_status():
-    # Simulate deployment progress
-    import random
-    stages = [
-        "Validating YAML configuration...",
-        "Creating Kubernetes resources...",
-        "Pulling container images...",
-        "Allocating GPU resources...",
-        "Starting inference service...",
-        "Running health checks...",
-        "Deployment completed!"
-    ]
-    
-    stage = request.args.get('stage', 0)
-    stage = int(stage)
-    
-    if stage < len(stages):
-        return jsonify({
-            "stage": stage,
-            "message": stages[stage],
-            "progress": int((stage / len(stages)) * 100),
-            "completed": False
-        })
-    else:
-        return jsonify({
-            "stage": stage,
-            "message": "Deployment successful!",
-            "progress": 100,
-            "completed": True
-        })
-
-if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
