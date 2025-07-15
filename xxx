@@ -1,806 +1,373 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Inference Service Deployment</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .container {
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
-            padding: 40px;
-            width: 100%;
-            max-width: 600px;
-            transition: all 0.3s ease;
-        }
-
-        .page {
-            display: none;
-        }
-
-        .page.active {
-            display: block;
-        }
-
-        h1 {
-            color: #333;
-            margin-bottom: 30px;
-            text-align: center;
-            font-size: 2.5em;
-            font-weight: 300;
-        }
-
-        h2 {
-            color: #555;
-            margin-bottom: 20px;
-            font-size: 1.8em;
-            font-weight: 400;
-        }
-
-        .form-group {
-            margin-bottom: 20px;
-        }
-
-        label {
-            display: block;
-            margin-bottom: 8px;
-            color: #555;
-            font-weight: 500;
-        }
-
-        input, select, textarea {
-            width: 100%;
-            padding: 12px 16px;
-            border: 2px solid #e1e5e9;
-            border-radius: 12px;
-            font-size: 16px;
-            transition: all 0.3s ease;
-            background: #f8f9fa;
-        }
-
-        input:focus, select:focus, textarea:focus {
-            outline: none;
-            border-color: #667eea;
-            background: white;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }
-
-        .btn {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            padding: 15px 30px;
-            border-radius: 12px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            width: 100%;
-            margin-top: 20px;
-        }
-
-        .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
-        }
-
-        .btn:active {
-            transform: translateY(0);
-        }
-
-        .btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        .error {
-            color: #e74c3c;
-            font-size: 14px;
-            margin-top: 10px;
-            text-align: center;
-        }
-
-        .success {
-            color: #27ae60;
-            font-size: 14px;
-            margin-top: 10px;
-            text-align: center;
-        }
-
-        .yaml-container {
-            background: #2d3748;
-            color: #e2e8f0;
-            padding: 20px;
-            border-radius: 12px;
-            margin: 20px 0;
-            font-family: 'Courier New', monospace;
-            font-size: 14px;
-            line-height: 1.4;
-            max-height: 400px;
-            overflow-y: auto;
-            white-space: pre-wrap;
-        }
-
-        .loading {
-            text-align: center;
-            padding: 40px;
-        }
-
-        .spinner {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #667eea;
-            border-radius: 50%;
-            width: 60px;
-            height: 60px;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 20px;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .progress-bar {
-            background: #e1e5e9;
-            border-radius: 10px;
-            height: 20px;
-            margin: 20px 0;
-            overflow: hidden;
-        }
-
-        .progress-fill {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            height: 100%;
-            transition: width 0.5s ease;
-            border-radius: 10px;
-        }
-
-        .deployment-stage {
-            background: #f8f9fa;
-            border-left: 4px solid #667eea;
-            padding: 15px;
-            margin: 10px 0;
-            border-radius: 0 8px 8px 0;
-        }
-
-        .form-row {
-            display: flex;
-            gap: 15px;
-        }
-
-        .form-row .form-group {
-            flex: 1;
-        }
-
-        .dashboard-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 40px;
-            padding: 20px;
-            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-            border-radius: 12px;
-            border: 1px solid #dee2e6;
-        }
-
-        .user-info {
-            display: flex;
-            align-items: center;
-            gap: 20px;
-        }
-
-        .user-avatar {
-            width: 60px;
-            height: 60px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 24px;
-            color: white;
-        }
-
-        .user-details h2 {
-            margin: 0 0 5px 0;
-            font-size: 1.5em;
-            color: #333;
-        }
-
-        .user-details p {
-            margin: 0 0 10px 0;
-            color: #666;
-            font-size: 14px;
-        }
-
-        .user-badges {
-            display: flex;
-            gap: 10px;
-        }
-
-        .badge {
-            background: #667eea;
-            color: white;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 500;
-        }
-
-        .badge.admin {
-            background: #e74c3c;
-        }
-
-        .badge.developer {
-            background: #27ae60;
-        }
-
-        .dashboard-actions {
-            display: flex;
-            gap: 10px;
-        }
-
-        .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-        }
-
-        .btn-secondary {
-            background: #6c757d;
-            color: white;
-        }
-
-        .services-section h2 {
-            margin-bottom: 20px;
-            color: #333;
-        }
-
-        .services-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-            gap: 20px;
-        }
-
-        .service-card {
-            background: white;
-            border: 1px solid #e1e5e9;
-            border-radius: 12px;
-            padding: 20px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            transition: all 0.3s ease;
-        }
-
-        .service-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
-        }
-
-        .service-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
-        }
-
-        .service-name {
-            font-size: 1.2em;
-            font-weight: 600;
-            color: #333;
-            margin: 0;
-        }
-
-        .service-status {
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 500;
-        }
-
-        .status-running {
-            background: #d4edda;
-            color: #155724;
-        }
-
-        .status-pending {
-            background: #fff3cd;
-            color: #856404;
-        }
-
-        .status-error {
-            background: #f8d7da;
-            color: #721c24;
-        }
-
-        .service-details {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-            margin-bottom: 15px;
-        }
-
-        .service-detail {
-            font-size: 14px;
-        }
-
-        .service-detail-label {
-            color: #666;
-            font-weight: 500;
-        }
-
-        .service-detail-value {
-            color: #333;
-            font-family: monospace;
-        }
-
-        .service-endpoint {
-            background: #f8f9fa;
-            padding: 10px;
-            border-radius: 6px;
-            font-family: monospace;
-            font-size: 12px;
-            color: #495057;
-            word-break: break-all;
-            margin-top: 10px;
-        }
-
-        .empty-state {
-            text-align: center;
-            padding: 60px 20px;
-            color: #666;
-        }
-
-        .completion-message {
-            background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%);
-            color: white;
-            padding: 20px;
-            border-radius: 12px;
-            text-align: center;
-            margin: 20px 0;
-        }
-
-        .config-summary {
-            background: #f8f9fa;
-            border: 1px solid #e1e5e9;
-            border-radius: 12px;
-            padding: 20px;
-            margin: 20px 0;
-        }
-
-        .config-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 5px 0;
-            border-bottom: 1px solid #e1e5e9;
-        }
-
-        .config-item:last-child {
-            border-bottom: none;
-        }
-
-        .config-label {
-            font-weight: 500;
-            color: #555;
-        }
-
-        .config-value {
-            color: #333;
-            font-family: monospace;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <!-- Login Page -->
-        <div class="page active" id="login-page">
-            <h1>🚀 Inference Service Deployment</h1>
-            <form id="login-form">
-                <div class="form-group">
-                    <label for="username">Username</label>
-                    <input type="text" id="username" name="username" required>
-                </div>
-                <div class="form-group">
-                    <label for="password">Password</label>
-                    <input type="password" id="password" name="password" required>
-                </div>
-                <button type="submit" class="btn">Login</button>
-                <div id="login-error" class="error"></div>
-            </form>
-            <div style="margin-top: 20px; font-size: 14px; color: #666; text-align: center;">
-                Demo credentials: admin/password123 or user/test123
-            </div>
-        </div>
-
-        <!-- Dashboard Page -->
-        <div class="page" id="dashboard-page">
-            <div class="dashboard-header">
-                <div class="user-info">
-                    <div class="user-avatar">👤</div>
-                    <div class="user-details">
-                        <h2 id="user-name">Loading...</h2>
-                        <p id="user-email">Loading...</p>
-                        <div class="user-badges">
-                            <span class="badge" id="user-role">Loading...</span>
-                            <span class="badge" id="user-namespace">Loading...</span>
-                        </div>
-                    </div>
-                </div>
-                <div class="dashboard-actions">
-                    <button class="btn btn-primary" onclick="showPage('config-page')">Deploy New Service</button>
-                    <button class="btn btn-secondary" onclick="refreshServices()">Refresh</button>
-                </div>
-            </div>
-
-            <div class="services-section">
-                <h2>Inference Services</h2>
-                <div class="services-grid" id="services-grid">
-                    <!-- Services will be populated here -->
-                </div>
-            </div>
-        </div>
-
-        <!-- Configuration Wizard -->
-        <div class="page" id="config-page">
-            <h1>⚙️ Configuration Wizard</h1>
-            <form id="config-form">
-                <div class="form-group">
-                    <label for="runtime">Runtime</label>
-                    <select id="runtime" name="runtime" required>
-                        <option value="">Select runtime...</option>
-                        <option value="pytorch">PyTorch</option>
-                        <option value="tensorflow">TensorFlow</option>
-                        <option value="onnx">ONNX</option>
-                        <option value="triton">Triton</option>
-                    </select>
-                </div>
-                
-                <div class="form-group">
-                    <label for="serviceName">Inference Service Name</label>
-                    <input type="text" id="serviceName" name="serviceName" placeholder="my-inference-service" required>
-                </div>
-                
-                <div class="form-group">
-                    <label for="s3Url">S3 Model Location</label>
-                    <input type="text" id="s3Url" name="s3Url" placeholder="s3://my-bucket/model/" required>
-                </div>
-                
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="gpuRequest">GPU Request</label>
-                        <input type="number" id="gpuRequest" name="gpuRequest" min="0" max="8" value="1" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="cpuRequest">CPU Request</label>
-                        <input type="text" id="cpuRequest" name="cpuRequest" placeholder="2" value="2" required>
-                    </div>
-                </div>
-                
-                <div class="form-group">
-                    <label for="memoryRequest">Memory Request</label>
-                    <input type="text" id="memoryRequest" name="memoryRequest" placeholder="4Gi" value="4Gi" required>
-                </div>
-                
-                <button type="submit" class="btn">Generate YAML</button>
-            </form>
-        </div>
-
-        <!-- YAML Review Page -->
-        <div class="page" id="yaml-page">
-            <h1>📝 Review Configuration</h1>
-            
-            <div class="config-summary" id="config-summary"></div>
-            
-            <h2>Generated YAML:</h2>
-            <div class="yaml-container" id="yaml-content"></div>
-            
-            <div style="display: flex; gap: 10px;">
-                <button class="btn" onclick="goBack()" style="background: #6c757d; width: auto; flex: 1;">Back to Config</button>
-                <button class="btn" onclick="deployService()" style="width: auto; flex: 2;">Deploy Service</button>
-            </div>
-        </div>
-
-        <!-- Deployment Page -->
-        <div class="page" id="deployment-page">
-            <h1>🚀 Deploying Service</h1>
-            
-            <div class="loading" id="deployment-loading">
-                <div class="spinner"></div>
-                <div class="progress-bar">
-                    <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
-                </div>
-                <div class="deployment-stage" id="deployment-stage">
-                    Initializing deployment...
-                </div>
-            </div>
-            
-            <div id="deployment-complete" style="display: none;">
-                <div class="completion-message">
-                    <h2>🎉 Deployment Successful!</h2>
-                    <p>Your inference service is now running and ready to serve predictions.</p>
-                </div>
-                
-                <div class="config-summary">
-                    <div class="config-item">
-                        <span class="config-label">Service Status:</span>
-                        <span class="config-value" style="color: #27ae60;">Running</span>
-                    </div>
-                    <div class="config-item">
-                        <span class="config-label">Endpoint:</span>
-                        <span class="config-value" id="service-endpoint"></span>
-                    </div>
-                    <div class="config-item">
-                        <span class="config-label">Deployment Time:</span>
-                        <span class="config-value" id="deployment-time"></span>
-                    </div>
-                </div>
-                
-                <button class="btn" onclick="startOver()">Deploy Another Service</button>
-            </div>
-        </div>
-    </div>
-
-    <script>
-        let currentConfig = {};
-        let sessionToken = null;
-        let currentUser = null;
-        let deploymentStartTime = null;
-
-        // Page navigation
-        function showPage(pageId) {
-            document.querySelectorAll('.page').forEach(page => {
-                page.classList.remove('active');
-            });
-            document.getElementById(pageId).classList.add('active');
-        }
-
-        // Login functionality
-        document.getElementById('login-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const formData = new FormData(e.target);
-            const loginData = {
-                username: formData.get('username'),
-                password: formData.get('password')
-            };
-
-            try {
-                const response = await fetch('/api/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(loginData)
-                });
-
-                const result = await response.json();
-                
-                if (result.success) {
-                    sessionToken = result.token;
-                    currentUser = result.user;
-                    displayUserInfo();
-                    loadServices();
-                    showPage('dashboard-page');
-                    document.getElementById('login-error').textContent = '';
-                } else {
-                    document.getElementById('login-error').textContent = result.message;
-                }
-            } catch (error) {
-                document.getElementById('login-error').textContent = 'Login failed. Please try again.';
+{
+  "dashboard": {
+    "id": null,
+    "title": "Triton Inference Server Performance Dashboard",
+    "tags": ["triton", "inference", "ml", "monitoring"],
+    "timezone": "browser",
+    "refresh": "5s",
+    "time": {
+      "from": "now-30m",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Service Health Overview",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "up{job=\"triton-inference\"}",
+            "legendFormat": "Service Status"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "green", "value": 1}
+              ]
+            },
+            "mappings": [
+              {"options": {"0": {"text": "DOWN"}}, "type": "value"},
+              {"options": {"1": {"text": "UP"}}, "type": "value"}
+            ]
+          }
+        },
+        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "Total Inference Requests",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(rate(nv_inference_request_success_total[5m])) + sum(rate(nv_inference_request_failure_total[5m]))",
+            "legendFormat": "Requests/sec"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps",
+            "color": {"mode": "palette-classic"}
+          }
+        },
+        "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0}
+      },
+      {
+        "id": 3,
+        "title": "Success Rate",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(rate(nv_inference_request_success_total[5m])) / (sum(rate(nv_inference_request_success_total[5m])) + sum(rate(nv_inference_request_failure_total[5m]))) * 100",
+            "legendFormat": "Success Rate %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "color": {"mode": "thresholds"},
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "yellow", "value": 95},
+                {"color": "green", "value": 99}
+              ]
             }
-        });
-
-        function displayUserInfo() {
-            if (!currentUser) return;
-            
-            document.getElementById('user-name').textContent = currentUser.name;
-            document.getElementById('user-email').textContent = currentUser.email;
-            document.getElementById('user-role').textContent = currentUser.role;
-            document.getElementById('user-role').className = `badge ${currentUser.role}`;
-            document.getElementById('user-namespace').textContent = `namespace: ${currentUser.namespace}`;
-        }
-
-        async function loadServices() {
-            if (!currentUser) return;
-            
-            try {
-                const response = await fetch(`/api/services?username=${currentUser.username}`);
-                const result = await response.json();
-                
-                if (result.success) {
-                    displayServices(result.services);
-                }
-            } catch (error) {
-                console.error('Failed to load services:', error);
+          }
+        },
+        "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0}
+      },
+      {
+        "id": 4,
+        "title": "Active Models",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "count(count by (model)(nv_inference_request_success_total))",
+            "legendFormat": "Models Loaded"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"}
+          }
+        },
+        "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0}
+      },
+      {
+        "id": 5,
+        "title": "Request Rate by Model",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "sum(rate(nv_inference_request_success_total[5m])) by (model)",
+            "legendFormat": "{{model}} - Success"
+          },
+          {
+            "expr": "sum(rate(nv_inference_request_failure_total[5m])) by (model)",
+            "legendFormat": "{{model}} - Failure"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps",
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "linear",
+              "showPoints": "never",
+              "stacking": {"mode": "none"}
             }
-        }
-
-        function displayServices(services) {
-            const servicesGrid = document.getElementById('services-grid');
-            
-            if (services.length === 0) {
-                servicesGrid.innerHTML = `
-                    <div class="empty-state">
-                        <div class="empty-state-icon">🚀</div>
-                        <h3>No Inference Services</h3>
-                        <p>Deploy your first inference service to get started!</p>
-                    </div>
-                `;
-                return;
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4}
+      },
+      {
+        "id": 6,
+        "title": "Inference Latency Distribution",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(nv_inference_request_duration_us_bucket[5m])) by (le, model))",
+            "legendFormat": "{{model}} - P50"
+          },
+          {
+            "expr": "histogram_quantile(0.90, sum(rate(nv_inference_request_duration_us_bucket[5m])) by (le, model))",
+            "legendFormat": "{{model}} - P90"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(nv_inference_request_duration_us_bucket[5m])) by (le, model))",
+            "legendFormat": "{{model}} - P99"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "µs",
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "linear",
+              "showPoints": "never"
             }
-            
-            servicesGrid.innerHTML = services.map(service => `
-                <div class="service-card">
-                    <div class="service-header">
-                        <h3 class="service-name">${service.name}</h3>
-                        <span class="service-status status-${service.status.toLowerCase()}">${service.status}</span>
-                    </div>
-                    <div class="service-details">
-                        <div class="service-detail">
-                            <div class="service-detail-label">Runtime:</div>
-                            <div class="service-detail-value">${service.runtime}</div>
-                        </div>
-                        <div class="service-detail">
-                            <div class="service-detail-label">Replicas:</div>
-                            <div class="service-detail-value">${service.replicas}</div>
-                        </div>
-                        <div class="service-detail">
-                            <div class="service-detail-label">GPU:</div>
-                            <div class="service-detail-value">${service.resources.gpu}</div>
-                        </div>
-                        <div class="service-detail">
-                            <div class="service-detail-label">Memory:</div>
-                            <div class="service-detail-value">${service.resources.memory}</div>
-                        </div>
-                    </div>
-                    <div class="service-endpoint">${service.endpoint}</div>
-                </div>
-            `).join('');
-        }
-
-        function refreshServices() {
-            loadServices();
-        }
-
-        // Configuration form
-        document.getElementById('config-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const formData = new FormData(e.target);
-            
-            currentConfig = {
-                runtime: formData.get('runtime'),
-                serviceName: formData.get('serviceName'),
-                s3Url: formData.get('s3Url'),
-                gpuRequest: formData.get('gpuRequest'),
-                cpuRequest: formData.get('cpuRequest'),
-                memoryRequest: formData.get('memoryRequest')
-            };
-
-            try {
-                const response = await fetch('/api/generate-yaml', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(currentConfig)
-                });
-
-                const result = await response.json();
-                
-                if (result.success) {
-                    displayConfigSummary();
-                    document.getElementById('yaml-content').textContent = result.yaml;
-                    showPage('yaml-page');
-                }
-            } catch (error) {
-                alert('Failed to generate YAML. Please try again.');
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4}
+      },
+      {
+        "id": 7,
+        "title": "GPU Utilization",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "nv_gpu_utilization",
+            "legendFormat": "GPU {{gpu_uuid}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "max": 100,
+            "min": 0,
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "linear",
+              "fillOpacity": 10
             }
-        });
-
-        function displayConfigSummary() {
-            const summary = document.getElementById('config-summary');
-            summary.innerHTML = `
-                <div class="config-item">
-                    <span class="config-label">Runtime:</span>
-                    <span class="config-value">${currentConfig.runtime}</span>
-                </div>
-                <div class="config-item">
-                    <span class="config-label">Service Name:</span>
-                    <span class="config-value">${currentConfig.serviceName}</span>
-                </div>
-                <div class="config-item">
-                    <span class="config-label">Model Location:</span>
-                    <span class="config-value">${currentConfig.s3Url}</span>
-                </div>
-                <div class="config-item">
-                    <span class="config-label">Resources:</span>
-                    <span class="config-value">${currentConfig.gpuRequest} GPU, ${currentConfig.cpuRequest} CPU, ${currentConfig.memoryRequest} Memory</span>
-                </div>
-            `;
-        }
-
-        function goBack() {
-            showPage('config-page');
-        }
-
-        async function deployService() {
-            showPage('deployment-page');
-            deploymentStartTime = Date.now();
-            
-            // Start deployment animation
-            let stage = 0;
-            const deploymentInterval = setInterval(async () => {
-                try {
-                    const response = await fetch(`/api/deployment-status?stage=${stage}`);
-                    const status = await response.json();
-                    
-                    document.getElementById('deployment-stage').textContent = status.message;
-                    document.getElementById('progress-fill').style.width = `${status.progress}%`;
-                    
-                    if (status.completed) {
-                        clearInterval(deploymentInterval);
-                        completeDeployment();
-                    } else {
-                        stage++;
-                    }
-                } catch (error) {
-                    clearInterval(deploymentInterval);
-                    alert('Deployment failed. Please try again.');
-                }
-            }, 2000);
-        }
-
-        async function completeDeployment() {
-            try {
-                const response = await fetch('/api/deploy', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        yaml: document.getElementById('yaml-content').textContent,
-                        serviceName: currentConfig.serviceName
-                    })
-                });
-
-                const result = await response.json();
-                
-                if (result.success) {
-                    const deploymentTime = Math.round((Date.now() - deploymentStartTime) / 1000);
-                    
-                    document.getElementById('deployment-loading').style.display = 'none';
-                    document.getElementById('deployment-complete').style.display = 'block';
-                    document.getElementById('service-endpoint').textContent = result.endpoint;
-                    document.getElementById('deployment-time').textContent = `${deploymentTime} seconds`;
-                }
-            } catch (error) {
-                alert('Deployment completed with errors. Please check the logs.');
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12}
+      },
+      {
+        "id": 8,
+        "title": "GPU Memory Usage",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "nv_gpu_memory_used_bytes / nv_gpu_memory_total_bytes * 100",
+            "legendFormat": "GPU {{gpu_uuid}} Memory %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "max": 100,
+            "min": 0,
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "linear",
+              "fillOpacity": 10
             }
-        }
-
-        function startOver() {
-            currentConfig = {};
-            document.getElementById('config-form').reset();
-            document.getElementById('deployment-loading').style.display = 'block';
-            document.getElementById('deployment-complete').style.display = 'none';
-            document.getElementById('progress-fill').style.width = '0%';
-            showPage('dashboard-page');
-            loadServices(); // Refresh services after deployment
-        }
-
-        // Initialize
-        document.addEventListener('DOMContentLoaded', () => {
-            showPage('login-page');
-        });
-    </script>
-</body>
-</html>
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12}
+      },
+      {
+        "id": 9,
+        "title": "Queue Time by Model",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(nv_inference_queue_duration_us_bucket[5m])) by (le, model))",
+            "legendFormat": "{{model}} - Queue P50"
+          },
+          {
+            "expr": "histogram_quantile(0.90, sum(rate(nv_inference_queue_duration_us_bucket[5m])) by (le, model))",
+            "legendFormat": "{{model}} - Queue P90"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "µs",
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "linear"
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20}
+      },
+      {
+        "id": 10,
+        "title": "Compute Time by Model",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(nv_inference_compute_duration_us_bucket[5m])) by (le, model))",
+            "legendFormat": "{{model}} - Compute P50"
+          },
+          {
+            "expr": "histogram_quantile(0.90, sum(rate(nv_inference_compute_duration_us_bucket[5m])) by (le, model))",
+            "legendFormat": "{{model}} - Compute P90"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "µs",
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "linear"
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20}
+      },
+      {
+        "id": 11,
+        "title": "Model Execution Count",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "sum(nv_inference_request_success_total) by (model)",
+            "legendFormat": "{{model}}",
+            "format": "table",
+            "instant": true
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "left",
+              "displayMode": "basic"
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 28}
+      },
+      {
+        "id": 12,
+        "title": "Error Rate by Model",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "sum(rate(nv_inference_request_failure_total[5m])) by (model)",
+            "legendFormat": "{{model}} - Error Rate"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps",
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "linear"
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 8, "x": 8, "y": 28}
+      },
+      {
+        "id": 13,
+        "title": "Memory Usage (System)",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "nv_cpu_memory_used_bytes / nv_cpu_memory_total_bytes * 100",
+            "legendFormat": "CPU Memory %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "max": 100,
+            "min": 0,
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "linear",
+              "fillOpacity": 10
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 8, "x": 16, "y": 28}
+      },
+      {
+        "id": 14,
+        "title": "Request Size Distribution",
+        "type": "heatmap",
+        "targets": [
+          {
+            "expr": "sum(rate(nv_inference_request_size_bytes_bucket[5m])) by (le)",
+            "legendFormat": "{{le}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "vis": false
+              }
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 36}
+      },
+      {
+        "id": 15,
+        "title": "Response Size Distribution",
+        "type": "heatmap",
+        "targets": [
+          {
+            "expr": "sum(rate(nv_inference_response_size_bytes_bucket[5m])) by (le)",
+            "legendFormat": "{{le}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "vis": false
+              }
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 36}
+      }
+    ]
+  }
+}
