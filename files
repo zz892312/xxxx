@@ -1,414 +1,1102 @@
-name: Deploy Grafana Dashboard for Triton Inference Server
-
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
-    inputs:
-      dashboard_name:
-        description: 'Dashboard name'
-        required: false
-        default: 'triton-inference-monitoring'
-
-env:
-  GRAFANA_URL: ${{ secrets.GRAFANA_URL }}
-  GRAFANA_API_KEY: ${{ secrets.GRAFANA_API_KEY }}
-
-jobs:
-  deploy-dashboard:
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '18'
-
-    - name: Install dependencies
-      run: |
-        npm install -g @grafana/toolkit
-
-    - name: Validate Grafana URL and API Key
-      run: |
-        if [ -z "${{ env.GRAFANA_URL }}" ]; then
-          echo "Error: GRAFANA_URL secret not set"
-          exit 1
-        fi
-        if [ -z "${{ env.GRAFANA_API_KEY }}" ]; then
-          echo "Error: GRAFANA_API_KEY secret not set"
-          exit 1
-        fi
-
-    - name: Create dashboard directory
-      run: mkdir -p grafana/dashboards
-
-    - name: Generate Triton Dashboard JSON
-      run: |
-        cat > grafana/dashboards/triton-dashboard.json << 'EOF'
-        {
-          "dashboard": {
-            "id": null,
-            "title": "Triton Inference Server Monitoring",
-            "tags": ["triton", "inference", "ml"],
-            "timezone": "browser",
-            "panels": [
-              {
-                "id": 1,
-                "title": "Request Rate",
-                "type": "stat",
-                "targets": [
-                  {
-                    "expr": "rate(nv_inference_request_success_total[5m])",
-                    "legendFormat": "Success Rate",
-                    "refId": "A"
-                  },
-                  {
-                    "expr": "rate(nv_inference_request_failure_total[5m])",
-                    "legendFormat": "Failure Rate",
-                    "refId": "B"
-                  }
-                ],
-                "fieldConfig": {
-                  "defaults": {
-                    "unit": "reqps",
-                    "min": 0
-                  }
-                },
-                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
-              },
-              {
-                "id": 2,
-                "title": "Request Duration",
-                "type": "timeseries",
-                "targets": [
-                  {
-                    "expr": "histogram_quantile(0.50, rate(nv_inference_request_duration_us_bucket[5m]))",
-                    "legendFormat": "p50",
-                    "refId": "A"
-                  },
-                  {
-                    "expr": "histogram_quantile(0.95, rate(nv_inference_request_duration_us_bucket[5m]))",
-                    "legendFormat": "p95",
-                    "refId": "B"
-                  },
-                  {
-                    "expr": "histogram_quantile(0.99, rate(nv_inference_request_duration_us_bucket[5m]))",
-                    "legendFormat": "p99",
-                    "refId": "C"
-                  }
-                ],
-                "fieldConfig": {
-                  "defaults": {
-                    "unit": "µs",
-                    "min": 0
-                  }
-                },
-                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
-              },
-              {
-                "id": 3,
-                "title": "Queue Time",
-                "type": "timeseries",
-                "targets": [
-                  {
-                    "expr": "histogram_quantile(0.50, rate(nv_inference_queue_duration_us_bucket[5m]))",
-                    "legendFormat": "p50 Queue Time",
-                    "refId": "A"
-                  },
-                  {
-                    "expr": "histogram_quantile(0.95, rate(nv_inference_queue_duration_us_bucket[5m]))",
-                    "legendFormat": "p95 Queue Time",
-                    "refId": "B"
-                  }
-                ],
-                "fieldConfig": {
-                  "defaults": {
-                    "unit": "µs",
-                    "min": 0
-                  }
-                },
-                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
-              },
-              {
-                "id": 4,
-                "title": "Compute Time",
-                "type": "timeseries",
-                "targets": [
-                  {
-                    "expr": "histogram_quantile(0.50, rate(nv_inference_compute_duration_us_bucket[5m]))",
-                    "legendFormat": "p50 Compute Time",
-                    "refId": "A"
-                  },
-                  {
-                    "expr": "histogram_quantile(0.95, rate(nv_inference_compute_duration_us_bucket[5m]))",
-                    "legendFormat": "p95 Compute Time",
-                    "refId": "B"
-                  }
-                ],
-                "fieldConfig": {
-                  "defaults": {
-                    "unit": "µs",
-                    "min": 0
-                  }
-                },
-                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
-              },
-              {
-                "id": 5,
-                "title": "GPU Utilization",
-                "type": "timeseries",
-                "targets": [
-                  {
-                    "expr": "nv_gpu_utilization",
-                    "legendFormat": "GPU {{gpu_uuid}}",
-                    "refId": "A"
-                  }
-                ],
-                "fieldConfig": {
-                  "defaults": {
-                    "unit": "percent",
-                    "min": 0,
-                    "max": 100
-                  }
-                },
-                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}
-              },
-              {
-                "id": 6,
-                "title": "GPU Memory Usage",
-                "type": "timeseries",
-                "targets": [
-                  {
-                    "expr": "nv_gpu_memory_used_bytes / nv_gpu_memory_total_bytes * 100",
-                    "legendFormat": "GPU {{gpu_uuid}} Memory",
-                    "refId": "A"
-                  }
-                ],
-                "fieldConfig": {
-                  "defaults": {
-                    "unit": "percent",
-                    "min": 0,
-                    "max": 100
-                  }
-                },
-                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16}
-              },
-              {
-                "id": 7,
-                "title": "Model States",
-                "type": "stat",
-                "targets": [
-                  {
-                    "expr": "nv_model_inference_count",
-                    "legendFormat": "{{model}} - {{version}}",
-                    "refId": "A"
-                  }
-                ],
-                "fieldConfig": {
-                  "defaults": {
-                    "unit": "short",
-                    "min": 0
-                  }
-                },
-                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24}
-              },
-              {
-                "id": 8,
-                "title": "Error Rate",
-                "type": "timeseries",
-                "targets": [
-                  {
-                    "expr": "rate(nv_inference_request_failure_total[5m]) / rate(nv_inference_request_success_total[5m] + nv_inference_request_failure_total[5m]) * 100",
-                    "legendFormat": "Error Rate",
-                    "refId": "A"
-                  }
-                ],
-                "fieldConfig": {
-                  "defaults": {
-                    "unit": "percent",
-                    "min": 0,
-                    "max": 100
-                  }
-                },
-                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24}
-              },
-              {
-                "id": 9,
-                "title": "Concurrent Requests",
-                "type": "timeseries",
-                "targets": [
-                  {
-                    "expr": "nv_inference_pending_request_count",
-                    "legendFormat": "Pending Requests",
-                    "refId": "A"
-                  },
-                  {
-                    "expr": "nv_inference_exec_count",
-                    "legendFormat": "Executing Requests",
-                    "refId": "B"
-                  }
-                ],
-                "fieldConfig": {
-                  "defaults": {
-                    "unit": "short",
-                    "min": 0
-                  }
-                },
-                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32}
-              },
-              {
-                "id": 10,
-                "title": "Batch Size",
-                "type": "timeseries",
-                "targets": [
-                  {
-                    "expr": "nv_inference_batch_size",
-                    "legendFormat": "Batch Size - {{model}}",
-                    "refId": "A"
-                  }
-                ],
-                "fieldConfig": {
-                  "defaults": {
-                    "unit": "short",
-                    "min": 0
-                  }
-                },
-                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32}
-              }
-            ],
-            "time": {
-              "from": "now-1h",
-              "to": "now"
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": "-- Grafana --",
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "gnetId": null,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "vis": false
             },
-            "refresh": "30s",
-            "schemaVersion": 30,
-            "version": 1,
-            "editable": true
-          },
-          "folderId": null,
-          "overwrite": true
-        }
-        EOF
-
-    - name: Deploy Dashboard to Grafana
-      run: |
-        # Check if dashboard already exists
-        DASHBOARD_TITLE="Triton Inference Server Monitoring"
-        EXISTING_DASHBOARD=$(curl -s -H "Authorization: Bearer ${{ env.GRAFANA_API_KEY }}" \
-          "${{ env.GRAFANA_URL }}/api/search?query=$DASHBOARD_TITLE" | jq -r '.[0].uid // empty')
-        
-        if [ ! -z "$EXISTING_DASHBOARD" ]; then
-          echo "Dashboard exists with UID: $EXISTING_DASHBOARD"
-          # Update existing dashboard
-          curl -X POST \
-            -H "Authorization: Bearer ${{ env.GRAFANA_API_KEY }}" \
-            -H "Content-Type: application/json" \
-            -d @grafana/dashboards/triton-dashboard.json \
-            "${{ env.GRAFANA_URL }}/api/dashboards/uid/$EXISTING_DASHBOARD"
-        else
-          echo "Creating new dashboard"
-          curl -X POST \
-            -H "Authorization: Bearer ${{ env.GRAFANA_API_KEY }}" \
-            -H "Content-Type: application/json" \
-            -d @grafana/dashboards/triton-dashboard.json \
-            "${{ env.GRAFANA_URL }}/api/dashboards/db"
-        fi
-
-    - name: Create Data Source (if not exists)
-      run: |
-        # Check if Prometheus data source exists
-        DATASOURCE_NAME="prometheus"
-        EXISTING_DS=$(curl -s -H "Authorization: Bearer ${{ env.GRAFANA_API_KEY }}" \
-          "${{ env.GRAFANA_URL }}/api/datasources/name/$DATASOURCE_NAME" | jq -r '.id // empty')
-        
-        if [ -z "$EXISTING_DS" ]; then
-          echo "Creating Prometheus data source"
-          curl -X POST \
-            -H "Authorization: Bearer ${{ env.GRAFANA_API_KEY }}" \
-            -H "Content-Type: application/json" \
-            -d '{
-              "name": "prometheus",
-              "type": "prometheus",
-              "url": "http://prometheus:9090",
-              "access": "proxy",
-              "basicAuth": false,
-              "isDefault": true
-            }' \
-            "${{ env.GRAFANA_URL }}/api/datasources"
-        else
-          echo "Prometheus data source already exists with ID: $EXISTING_DS"
-        fi
-
-    - name: Setup Alerts (Optional)
-      run: |
-        # Create alert rules for critical metrics
-        cat > grafana/alerts.json << 'EOF'
-        {
-          "title": "Triton High Error Rate",
-          "condition": "A",
-          "data": [
-            {
-              "refId": "A",
-              "queryType": "",
-              "relativeTimeRange": {
-                "from": 300,
-                "to": 0
-              },
-              "model": {
-                "expr": "rate(nv_inference_request_failure_total[5m]) / rate(nv_inference_request_success_total[5m] + nv_inference_request_failure_total[5m]) * 100 > 5"
-              }
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
             }
-          ],
-          "noDataState": "NoData",
-          "execErrState": "Alerting",
-          "for": "5m",
-          "annotations": {
-            "description": "Triton inference server error rate is above 5%",
-            "summary": "High error rate detected"
           },
-          "labels": {
-            "severity": "warning"
-          }
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
         }
-        EOF
-        
-        # Deploy alert rule
-        curl -X POST \
-          -H "Authorization: Bearer ${{ env.GRAFANA_API_KEY }}" \
-          -H "Content-Type: application/json" \
-          -d @grafana/alerts.json \
-          "${{ env.GRAFANA_URL }}/api/ruler/grafana/api/v1/rules/default"
-
-    - name: Verify Dashboard Deployment
-      run: |
-        # Get dashboard URL
-        DASHBOARD_URL=$(curl -s -H "Authorization: Bearer ${{ env.GRAFANA_API_KEY }}" \
-          "${{ env.GRAFANA_URL }}/api/search?query=Triton%20Inference%20Server%20Monitoring" | \
-          jq -r '.[0].url // empty')
-        
-        if [ ! -z "$DASHBOARD_URL" ]; then
-          echo "✅ Dashboard deployed successfully!"
-          echo "Dashboard URL: ${{ env.GRAFANA_URL }}$DASHBOARD_URL"
-        else
-          echo "❌ Dashboard deployment failed"
-          exit 1
-        fi
-
-    - name: Create deployment summary
-      run: |
-        echo "## 📊 Grafana Dashboard Deployment Summary" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Dashboard Details:" >> $GITHUB_STEP_SUMMARY
-        echo "- **Name**: Triton Inference Server Monitoring" >> $GITHUB_STEP_SUMMARY
-        echo "- **URL**: ${{ env.GRAFANA_URL }}/d/triton-inference-monitoring" >> $GITHUB_STEP_SUMMARY
-        echo "- **Deployment Time**: $(date)" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Key Metrics Monitored:" >> $GITHUB_STEP_SUMMARY
-        echo "- Request Rate & Success/Failure Rates" >> $GITHUB_STEP_SUMMARY
-        echo "- Request Duration (p50, p95, p99)" >> $GITHUB_STEP_SUMMARY
-        echo "- Queue Time & Compute Time" >> $GITHUB_STEP_SUMMARY
-        echo "- GPU Utilization & Memory Usage" >> $GITHUB_STEP_SUMMARY
-        echo "- Model States & Error Rates" >> $GITHUB_STEP_SUMMARY
-        echo "- Concurrent Requests & Batch Sizes" >> $GITHUB_STEP_SUMMARY
+      },
+      "targets": [
+        {
+          "expr": "rate(nv_inference_request_success{kubernetes_name=\"infra-triton-qa-predictor\"}[5m])",
+          "interval": "",
+          "legendFormat": "Success Rate",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(nv_inference_request_failure{kubernetes_name=\"infra-triton-qa-predictor\"}[5m])",
+          "interval": "",
+          "legendFormat": "Failure Rate",
+          "refId": "B"
+        }
+      ],
+      "title": "HTTP Request Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "vis": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(nv_inference_request_duration_us{kubernetes_name=\"infra-triton-qa-predictor\"}[5m])) / 1000",
+          "interval": "",
+          "legendFormat": "P50 Latency",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(nv_inference_request_duration_us{kubernetes_name=\"infra-triton-qa-predictor\"}[5m])) / 1000",
+          "interval": "",
+          "legendFormat": "P95 Latency",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(nv_inference_request_duration_us{kubernetes_name=\"infra-triton-qa-predictor\"}[5m])) / 1000",
+          "interval": "",
+          "legendFormat": "P99 Latency",
+          "refId": "C"
+        }
+      ],
+      "title": "Request Latency Percentiles",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 8
+      },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "8.0.0",
+      "targets": [
+        {
+          "expr": "count(nv_model_config_count{kubernetes_name=\"infra-triton-qa-predictor\"})",
+          "interval": "",
+          "legendFormat": "Models",
+          "refId": "A"
+        }
+      ],
+      "title": "Models Deployed",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1000
+              },
+              {
+                "color": "red",
+                "value": 5000
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 8
+      },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "8.0.0",
+      "targets": [
+        {
+          "expr": "sum(nv_inference_queue_duration_us{kubernetes_name=\"infra-triton-qa-predictor\"})",
+          "interval": "",
+          "legendFormat": "Queue Time",
+          "refId": "A"
+        }
+      ],
+      "title": "Queue Time (μs)",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 8
+      },
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "8.0.0",
+      "targets": [
+        {
+          "expr": "100 * (1 - avg(rate(container_cpu_usage_seconds_total{pod=~\".*infra-triton-qa-predictor.*\"}[5m])))",
+          "interval": "",
+          "legendFormat": "CPU Usage",
+          "refId": "A"
+        }
+      ],
+      "title": "CPU Usage",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 8
+      },
+      "id": 6,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "8.0.0",
+      "targets": [
+        {
+          "expr": "100 * (avg(container_memory_working_set_bytes{pod=~\".*infra-triton-qa-predictor.*\"}) / avg(container_spec_memory_limit_bytes{pod=~\".*infra-triton-qa-predictor.*\"}))",
+          "interval": "",
+          "legendFormat": "Memory Usage",
+          "refId": "A"
+        }
+      ],
+      "title": "Memory Usage",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 8
+      },
+      "id": 7,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "8.0.0",
+      "targets": [
+        {
+          "expr": "avg(nv_gpu_utilization{kubernetes_name=\"infra-triton-qa-predictor\"})",
+          "interval": "",
+          "legendFormat": "GPU Utilization",
+          "refId": "A"
+        }
+      ],
+      "title": "GPU Usage",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "vis": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 12
+      },
+      "id": 8,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "expr": "rate(nv_inference_request_success{kubernetes_name=\"infra-triton-qa-predictor\"}[5m])",
+          "interval": "",
+          "legendFormat": "{{ model }}",
+          "refId": "A"
+        }
+      ],
+      "title": "Request Rate by Model",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "vis": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 12
+      },
+      "id": 9,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(nv_inference_request_duration_us{kubernetes_name=\"infra-triton-qa-predictor\"}[5m])) / 1000",
+          "interval": "",
+          "legendFormat": "{{ model }} P95",
+          "refId": "A"
+        }
+      ],
+      "title": "P95 Latency by Model",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "vis": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 20
+      },
+      "id": 10,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "expr": "100 * rate(container_cpu_usage_seconds_total{pod=~\".*infra-triton-qa-predictor.*\"}[5m])",
+          "interval": "",
+          "legendFormat": "{{ pod }}",
+          "refId": "A"
+        }
+      ],
+      "title": "CPU Usage by Pod",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "vis": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 20
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "expr": "container_memory_working_set_bytes{pod=~\".*infra-triton-qa-predictor.*\"}",
+          "interval": "",
+          "legendFormat": "{{ pod }}",
+          "refId": "A"
+        }
+      ],
+      "title": "Memory Usage by Pod",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "vis": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 20
+      },
+      "id": 12,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "expr": "nv_gpu_utilization{kubernetes_name=\"infra-triton-qa-predictor\"}",
+          "interval": "",
+          "legendFormat": "GPU {{ gpu_uuid }}",
+          "refId": "A"
+        }
+      ],
+      "title": "GPU Utilization by Device",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "vis": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 28
+      },
+      "id": 13,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "expr": "nv_gpu_memory_used_bytes{kubernetes_name=\"infra-triton-qa-predictor\"}",
+          "interval": "",
+          "legendFormat": "Used - GPU {{ gpu_uuid }}",
+          "refId": "A"
+        },
+        {
+          "expr": "nv_gpu_memory_total_bytes{kubernetes_name=\"infra-triton-qa-predictor\"}",
+          "interval": "",
+          "legendFormat": "Total - GPU {{ gpu_uuid }}",
+          "refId": "B"
+        }
+      ],
+      "title": "GPU Memory Usage",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "vis": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 28
+      },
+      "id": 14,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "expr": "nv_inference_pending_request_count{kubernetes_name=\"infra-triton-qa-predictor\"}",
+          "interval": "",
+          "legendFormat": "{{ model }}",
+          "refId": "A"
+        }
+      ],
+      "title": "Pending Requests by Model",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 27,
+  "style": "dark",
+  "tags": [
+    "triton",
+    "inference",
+    "nvidia",
+    "ml"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Triton Inference Server - QA Environment",
+  "uid": "triton-qa-dashboard",
+  "version": 1
+}
