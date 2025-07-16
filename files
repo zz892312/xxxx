@@ -90,13 +90,13 @@
       },
       "targets": [
         {
-          "expr": "rate(nv_inference_request_success{kubernetes_name=\"infra-triton-qa-predictor\"}[5m])",
+          "expr": "sum(rate(nv_inference_request_success{kubernetes_name=\"infra-triton-qat-predictor\"}[5m]))",
           "interval": "",
           "legendFormat": "Success Rate",
           "refId": "A"
         },
         {
-          "expr": "rate(nv_inference_request_failure{kubernetes_name=\"infra-triton-qa-predictor\"}[5m])",
+          "expr": "sum(rate(nv_inference_request_failure{kubernetes_name=\"infra-triton-qat-predictor\"}[5m]))",
           "interval": "",
           "legendFormat": "Failure Rate",
           "refId": "B"
@@ -177,19 +177,19 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, rate(nv_inference_request_duration_us{kubernetes_name=\"infra-triton-qa-predictor\"}[5m])) / 1000",
+          "expr": "histogram_quantile(0.50, sum(rate(nv_inference_request_duration_us{kubernetes_name=\"infra-triton-qat-predictor\"}[5m])) by (le)) / 1000",
           "interval": "",
           "legendFormat": "P50 Latency",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, rate(nv_inference_request_duration_us{kubernetes_name=\"infra-triton-qa-predictor\"}[5m])) / 1000",
+          "expr": "histogram_quantile(0.95, sum(rate(nv_inference_request_duration_us{kubernetes_name=\"infra-triton-qat-predictor\"}[5m])) by (le)) / 1000",
           "interval": "",
           "legendFormat": "P95 Latency",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.99, rate(nv_inference_request_duration_us{kubernetes_name=\"infra-triton-qa-predictor\"}[5m])) / 1000",
+          "expr": "histogram_quantile(0.99, sum(rate(nv_inference_request_duration_us{kubernetes_name=\"infra-triton-qat-predictor\"}[5m])) by (le)) / 1000",
           "interval": "",
           "legendFormat": "P99 Latency",
           "refId": "C"
@@ -247,7 +247,7 @@
       "pluginVersion": "8.0.0",
       "targets": [
         {
-          "expr": "count(nv_model_config_count{kubernetes_name=\"infra-triton-qa-predictor\"})",
+          "expr": "count(count by (model) (nv_model_config_count{kubernetes_name=\"infra-triton-qat-predictor\"}))",
           "interval": "",
           "legendFormat": "Models",
           "refId": "A"
@@ -309,7 +309,7 @@
       "pluginVersion": "8.0.0",
       "targets": [
         {
-          "expr": "sum(nv_inference_queue_duration_us{kubernetes_name=\"infra-triton-qa-predictor\"})",
+          "expr": "sum(nv_inference_queue_duration_us{kubernetes_name=\"infra-triton-qat-predictor\"})",
           "interval": "",
           "legendFormat": "Queue Time",
           "refId": "A"
@@ -371,7 +371,7 @@
       "pluginVersion": "8.0.0",
       "targets": [
         {
-          "expr": "100 * (1 - avg(rate(container_cpu_usage_seconds_total{pod=~\".*infra-triton-qa-predictor.*\"}[5m])))",
+          "expr": "100 * (1 - avg(rate(container_cpu_usage_seconds_total{pod=~\".*infra-triton-qat-predictor.*\"}[5m])))",
           "interval": "",
           "legendFormat": "CPU Usage",
           "refId": "A"
@@ -433,7 +433,7 @@
       "pluginVersion": "8.0.0",
       "targets": [
         {
-          "expr": "100 * (avg(container_memory_working_set_bytes{pod=~\".*infra-triton-qa-predictor.*\"}) / avg(container_spec_memory_limit_bytes{pod=~\".*infra-triton-qa-predictor.*\"}))",
+          "expr": "100 * (avg(container_memory_working_set_bytes{pod=~\".*infra-triton-qat-predictor.*\"}) / avg(container_spec_memory_limit_bytes{pod=~\".*infra-triton-qat-predictor.*\"}))",
           "interval": "",
           "legendFormat": "Memory Usage",
           "refId": "A"
@@ -495,7 +495,7 @@
       "pluginVersion": "8.0.0",
       "targets": [
         {
-          "expr": "avg(nv_gpu_utilization{kubernetes_name=\"infra-triton-qa-predictor\"})",
+          "expr": "avg(nv_gpu_utilization{kubernetes_name=\"infra-triton-qat-predictor\"})",
           "interval": "",
           "legendFormat": "GPU Utilization",
           "refId": "A"
@@ -576,7 +576,7 @@
       },
       "targets": [
         {
-          "expr": "rate(nv_inference_request_success{kubernetes_name=\"infra-triton-qa-predictor\"}[5m])",
+          "expr": "sum(rate(nv_inference_request_success{kubernetes_name=\"infra-triton-qat-predictor\"}[5m])) by (model)",
           "interval": "",
           "legendFormat": "{{ model }}",
           "refId": "A"
