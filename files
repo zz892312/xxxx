@@ -1,1102 +1,472 @@
-{
-  "annotations": {
-    "list": [
-      {
-        "builtIn": 1,
-        "datasource": "-- Grafana --",
-        "enable": true,
-        "hide": true,
-        "iconColor": "rgba(0, 211, 255, 1)",
-        "name": "Annotations & Alerts",
-        "type": "dashboard"
-      }
-    ]
-  },
-  "editable": true,
-  "gnetId": null,
-  "graphTooltip": 0,
-  "id": null,
-  "links": [],
-  "panels": [
+import React, { useState } from 'react';
+import { ChevronDown, ChevronRight, Check, Server, Cpu, HardDrive, Settings, Code, Terminal, Play, Copy } from 'lucide-react';
+
+const AiFarmSetupUI = () => {
+  const [expandedStep, setExpandedStep] = useState(0);
+  const [completedSteps, setCompletedSteps] = useState(new Set());
+  const [config, setConfig] = useState({
+    namespace: 'aifarm-production',
+    gpuCount: 1,
+    gpuMemory: '16',
+    cpuCores: 4,
+    memory: '8',
+    storage: '100',
+    environment: 'production'
+  });
+  const [copiedSection, setCopiedSection] = useState('');
+
+  const setupSteps = [
     {
-      "datasource": "Prometheus",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "vis": false
-            },
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": true,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "reqps"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 0
-      },
-      "id": 1,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "single"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum(rate(nv_inference_request_success{kubernetes_name=\"infra-triton-qat-predictor\"}[5m]))",
-          "interval": "",
-          "legendFormat": "Success Rate",
-          "refId": "A"
-        },
-        {
-          "expr": "sum(rate(nv_inference_request_failure{kubernetes_name=\"infra-triton-qat-predictor\"}[5m]))",
-          "interval": "",
-          "legendFormat": "Failure Rate",
-          "refId": "B"
-        }
-      ],
-      "title": "HTTP Request Rate",
-      "type": "timeseries"
+      id: 0,
+      title: "Basic Configuration",
+      icon: <Settings className="w-6 h-6" />,
+      description: "Set up namespace and environment details",
+      type: 'config'
     },
     {
-      "datasource": "Prometheus",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "vis": false
-            },
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": true,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "ms"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 0
-      },
-      "id": 2,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "single"
-        }
-      },
-      "targets": [
-        {
-          "expr": "histogram_quantile(0.50, sum(rate(nv_inference_request_duration_us{kubernetes_name=\"infra-triton-qat-predictor\"}[5m])) by (le)) / 1000",
-          "interval": "",
-          "legendFormat": "P50 Latency",
-          "refId": "A"
-        },
-        {
-          "expr": "histogram_quantile(0.95, sum(rate(nv_inference_request_duration_us{kubernetes_name=\"infra-triton-qat-predictor\"}[5m])) by (le)) / 1000",
-          "interval": "",
-          "legendFormat": "P95 Latency",
-          "refId": "B"
-        },
-        {
-          "expr": "histogram_quantile(0.99, sum(rate(nv_inference_request_duration_us{kubernetes_name=\"infra-triton-qat-predictor\"}[5m])) by (le)) / 1000",
-          "interval": "",
-          "legendFormat": "P99 Latency",
-          "refId": "C"
-        }
-      ],
-      "title": "Request Latency Percentiles",
-      "type": "timeseries"
+      id: 1,
+      title: "GPU Requirements",
+      icon: <Cpu className="w-6 h-6" />,
+      description: "Configure GPU resources for AI workloads",
+      type: 'config'
     },
     {
-      "datasource": "Prometheus",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 0,
-        "y": 8
-      },
-      "id": 3,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "pluginVersion": "8.0.0",
-      "targets": [
-        {
-          "expr": "count(count by (model) (nv_model_config_count{kubernetes_name=\"infra-triton-qat-predictor\"}))",
-          "interval": "",
-          "legendFormat": "Models",
-          "refId": "A"
-        }
-      ],
-      "title": "Models Deployed",
-      "type": "stat"
+      id: 2,
+      title: "Memory & Storage",
+      icon: <HardDrive className="w-6 h-6" />,
+      description: "Set CPU, memory, and storage requirements",
+      type: 'config'
     },
     {
-      "datasource": "Prometheus",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 1000
-              },
-              {
-                "color": "red",
-                "value": 5000
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 4,
-        "y": 8
-      },
-      "id": 4,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "pluginVersion": "8.0.0",
-      "targets": [
-        {
-          "expr": "sum(nv_inference_queue_duration_us{kubernetes_name=\"infra-triton-qat-predictor\"})",
-          "interval": "",
-          "legendFormat": "Queue Time",
-          "refId": "A"
-        }
-      ],
-      "title": "Queue Time (μs)",
-      "type": "stat"
+      id: 3,
+      title: "Configuration File",
+      icon: <Code className="w-6 h-6" />,
+      description: "Generated YAML configuration for deployment",
+      type: 'code'
     },
     {
-      "datasource": "Prometheus",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 70
-              },
-              {
-                "color": "red",
-                "value": 90
-              }
-            ]
-          },
-          "unit": "percent"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 8,
-        "y": 8
-      },
-      "id": 5,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "pluginVersion": "8.0.0",
-      "targets": [
-        {
-          "expr": "100 * (1 - avg(rate(container_cpu_usage_seconds_total{pod=~\".*infra-triton-qat-predictor.*\"}[5m])))",
-          "interval": "",
-          "legendFormat": "CPU Usage",
-          "refId": "A"
-        }
-      ],
-      "title": "CPU Usage",
-      "type": "stat"
+      id: 4,
+      title: "Deployment Script",
+      icon: <Terminal className="w-6 h-6" />,
+      description: "Ready-to-run deployment commands",
+      type: 'code'
     },
     {
-      "datasource": "Prometheus",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 70
-              },
-              {
-                "color": "red",
-                "value": 90
-              }
-            ]
-          },
-          "unit": "percent"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 12,
-        "y": 8
-      },
-      "id": 6,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "pluginVersion": "8.0.0",
-      "targets": [
-        {
-          "expr": "100 * (avg(container_memory_working_set_bytes{pod=~\".*infra-triton-qat-predictor.*\"}) / avg(container_spec_memory_limit_bytes{pod=~\".*infra-triton-qat-predictor.*\"}))",
-          "interval": "",
-          "legendFormat": "Memory Usage",
-          "refId": "A"
-        }
-      ],
-      "title": "Memory Usage",
-      "type": "stat"
-    },
-    {
-      "datasource": "Prometheus",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 70
-              },
-              {
-                "color": "red",
-                "value": 90
-              }
-            ]
-          },
-          "unit": "percent"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 16,
-        "y": 8
-      },
-      "id": 7,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "pluginVersion": "8.0.0",
-      "targets": [
-        {
-          "expr": "avg(nv_gpu_utilization{kubernetes_name=\"infra-triton-qat-predictor\"})",
-          "interval": "",
-          "legendFormat": "GPU Utilization",
-          "refId": "A"
-        }
-      ],
-      "title": "GPU Usage",
-      "type": "stat"
-    },
-    {
-      "datasource": "Prometheus",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "vis": false
-            },
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": true,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "reqps"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 12
-      },
-      "id": 8,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "single"
-        }
-      },
-      "targets": [
-        {
-          "expr": "sum(rate(nv_inference_request_success{kubernetes_name=\"infra-triton-qat-predictor\"}[5m])) by (model)",
-          "interval": "",
-          "legendFormat": "{{ model }}",
-          "refId": "A"
-        }
-      ],
-      "title": "Request Rate by Model",
-      "type": "timeseries"
-    },
-    {
-      "datasource": "Prometheus",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "vis": false
-            },
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": true,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "ms"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 12
-      },
-      "id": 9,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "single"
-        }
-      },
-      "targets": [
-        {
-          "expr": "histogram_quantile(0.95, rate(nv_inference_request_duration_us{kubernetes_name=\"infra-triton-qa-predictor\"}[5m])) / 1000",
-          "interval": "",
-          "legendFormat": "{{ model }} P95",
-          "refId": "A"
-        }
-      ],
-      "title": "P95 Latency by Model",
-      "type": "timeseries"
-    },
-    {
-      "datasource": "Prometheus",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "vis": false
-            },
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": true,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "percent"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 0,
-        "y": 20
-      },
-      "id": 10,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "single"
-        }
-      },
-      "targets": [
-        {
-          "expr": "100 * rate(container_cpu_usage_seconds_total{pod=~\".*infra-triton-qa-predictor.*\"}[5m])",
-          "interval": "",
-          "legendFormat": "{{ pod }}",
-          "refId": "A"
-        }
-      ],
-      "title": "CPU Usage by Pod",
-      "type": "timeseries"
-    },
-    {
-      "datasource": "Prometheus",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "vis": false
-            },
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": true,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "bytes"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 8,
-        "y": 20
-      },
-      "id": 11,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "single"
-        }
-      },
-      "targets": [
-        {
-          "expr": "container_memory_working_set_bytes{pod=~\".*infra-triton-qa-predictor.*\"}",
-          "interval": "",
-          "legendFormat": "{{ pod }}",
-          "refId": "A"
-        }
-      ],
-      "title": "Memory Usage by Pod",
-      "type": "timeseries"
-    },
-    {
-      "datasource": "Prometheus",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "vis": false
-            },
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": true,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "percent"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 20
-      },
-      "id": 12,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "single"
-        }
-      },
-      "targets": [
-        {
-          "expr": "nv_gpu_utilization{kubernetes_name=\"infra-triton-qa-predictor\"}",
-          "interval": "",
-          "legendFormat": "GPU {{ gpu_uuid }}",
-          "refId": "A"
-        }
-      ],
-      "title": "GPU Utilization by Device",
-      "type": "timeseries"
-    },
-    {
-      "datasource": "Prometheus",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "vis": false
-            },
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": true,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "bytes"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 28
-      },
-      "id": 13,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "single"
-        }
-      },
-      "targets": [
-        {
-          "expr": "nv_gpu_memory_used_bytes{kubernetes_name=\"infra-triton-qa-predictor\"}",
-          "interval": "",
-          "legendFormat": "Used - GPU {{ gpu_uuid }}",
-          "refId": "A"
-        },
-        {
-          "expr": "nv_gpu_memory_total_bytes{kubernetes_name=\"infra-triton-qa-predictor\"}",
-          "interval": "",
-          "legendFormat": "Total - GPU {{ gpu_uuid }}",
-          "refId": "B"
-        }
-      ],
-      "title": "GPU Memory Usage",
-      "type": "timeseries"
-    },
-    {
-      "datasource": "Prometheus",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "vis": false
-            },
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": true,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 28
-      },
-      "id": 14,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "single"
-        }
-      },
-      "targets": [
-        {
-          "expr": "nv_inference_pending_request_count{kubernetes_name=\"infra-triton-qa-predictor\"}",
-          "interval": "",
-          "legendFormat": "{{ model }}",
-          "refId": "A"
-        }
-      ],
-      "title": "Pending Requests by Model",
-      "type": "timeseries"
+      id: 5,
+      title: "Workflow Example",
+      icon: <Play className="w-6 h-6" />,
+      description: "Sample workflow with your configuration",
+      type: 'code'
     }
-  ],
-  "refresh": "5s",
-  "schemaVersion": 27,
-  "style": "dark",
-  "tags": [
-    "triton",
-    "inference",
-    "nvidia",
-    "ml"
-  ],
-  "templating": {
-    "list": []
-  },
-  "time": {
-    "from": "now-1h",
-    "to": "now"
-  },
-  "timepicker": {},
-  "timezone": "",
-  "title": "Triton Inference Server - QA Environment",
-  "uid": "triton-qa-dashboard",
-  "version": 1
-}
+  ];
+
+  const gpuOptions = [
+    { count: 0, memory: 0, label: 'No GPU', description: 'Basic monitoring only', cost: '$' },
+    { count: 1, memory: 16, label: '1x GPU (16GB)', description: 'Standard AI tasks', cost: '$$' },
+    { count: 1, memory: 32, label: '1x GPU (32GB)', description: 'Advanced AI processing', cost: '$$$' },
+    { count: 2, memory: 32, label: '2x GPU (32GB)', description: 'Multi-model inference', cost: '$$$$' },
+    { count: 4, memory: 80, label: '4x GPU (80GB)', description: 'Research & training', cost: '$$$$$' }
+  ];
+
+  const toggleStep = (stepId) => {
+    setExpandedStep(expandedStep === stepId ? -1 : stepId);
+  };
+
+  const markStepComplete = (stepId) => {
+    const newCompletedSteps = new Set(completedSteps);
+    if (newCompletedSteps.has(stepId)) {
+      newCompletedSteps.delete(stepId);
+    } else {
+      newCompletedSteps.add(stepId);
+    }
+    setCompletedSteps(newCompletedSteps);
+  };
+
+  const updateConfig = (key, value) => {
+    setConfig(prev => ({ ...prev, [key]: value }));
+  };
+
+  const copyToClipboard = async (text, section) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedSection(section);
+      setTimeout(() => setCopiedSection(''), 2000);
+    } catch (err) {
+      console.error('Failed to copy text: ', err);
+    }
+  };
+
+  const generateConfigYaml = () => {
+    return `# AiFarm Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aifarm-config
+  namespace: ${config.namespace}
+data:
+  deployment:
+    namespace: "${config.namespace}"
+    environment: "${config.environment}"
+    
+  resources:
+    gpu:
+      enabled: ${config.gpuCount > 0}
+      count: "${config.gpuCount}"
+      memory: "${config.gpuMemory}Gi"
+      type: "nvidia.com/gpu"
+    
+    compute:
+      cpu: "${config.cpuCores}"
+      memory: "${config.memory}Gi"
+      
+  storage:
+    size: "${config.storage}Gi"
+    class: "fast-ssd"`;
+  };
+
+  const generateDeploymentScript = () => {
+    return `#!/bin/bash
+# AiFarm Deployment Script
+
+# Create namespace
+kubectl create namespace ${config.namespace}
+
+# Apply configuration
+kubectl apply -f aifarm-config.yaml
+
+# Deploy AiFarm
+helm install aifarm ./helm/aifarm \\
+  --namespace=${config.namespace} \\
+  --set gpu.count=${config.gpuCount} \\
+  --set gpu.memory=${config.gpuMemory}Gi \\
+  --wait
+
+# Verify deployment
+kubectl get pods -n ${config.namespace}`;
+  };
+
+  const generateWorkflowExample = () => {
+    return `# Crop Analysis Workflow
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  name: crop-analysis
+  namespace: ${config.namespace}
+spec:
+  entrypoint: analyze-crops
+  templates:
+  - name: analyze-crops
+    container:
+      image: aifarm/crop-analyzer:latest
+      resources:
+        requests:${config.gpuCount > 0 ? `
+          nvidia.com/gpu: ${config.gpuCount}` : ''}
+          memory: "${config.memory}Gi"
+          cpu: "${config.cpuCores}"`;
+  };
+
+  const totalProgress = Math.round(
+    (Array.from(completedSteps).length / setupSteps.length) * 100
+  );
+
+  const renderConfigContent = (step) => {
+    switch (step.id) {
+      case 0: // Basic Configuration
+        return (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Namespace
+              </label>
+              <input
+                type="text"
+                value={config.namespace}
+                onChange={(e) => updateConfig('namespace', e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                placeholder="aifarm-production"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Environment
+              </label>
+              <select
+                value={config.environment}
+                onChange={(e) => updateConfig('environment', e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+              >
+                <option value="development">Development</option>
+                <option value="staging">Staging</option>
+                <option value="production">Production</option>
+              </select>
+            </div>
+          </div>
+        );
+      
+      case 1: // GPU Requirements
+        return (
+          <div className="space-y-3">
+            {gpuOptions.map((option, index) => (
+              <div
+                key={index}
+                onClick={() => {
+                  updateConfig('gpuCount', option.count);
+                  updateConfig('gpuMemory', option.memory.toString());
+                }}
+                className={`p-4 border-2 rounded-lg cursor-pointer transition-all duration-200 ${
+                  config.gpuCount === option.count && config.gpuMemory === option.memory.toString()
+                    ? 'border-green-500 bg-green-50'
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex justify-between items-center">
+                  <div>
+                    <div className="font-medium text-gray-800">{option.label}</div>
+                    <div className="text-sm text-gray-600">{option.description}</div>
+                  </div>
+                  <div className="text-lg font-bold text-green-600">{option.cost}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      
+      case 2: // Memory & Storage
+        return (
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                CPU Cores
+              </label>
+              <select
+                value={config.cpuCores}
+                onChange={(e) => updateConfig('cpuCores', parseInt(e.target.value))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+              >
+                <option value={2}>2 Cores</option>
+                <option value={4}>4 Cores</option>
+                <option value={8}>8 Cores</option>
+                <option value={16}>16 Cores</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Memory (GB)
+              </label>
+              <select
+                value={config.memory}
+                onChange={(e) => updateConfig('memory', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+              >
+                <option value="4">4 GB</option>
+                <option value="8">8 GB</option>
+                <option value="16">16 GB</option>
+                <option value="32">32 GB</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Storage (GB)
+              </label>
+              <select
+                value={config.storage}
+                onChange={(e) => updateConfig('storage', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+              >
+                <option value="50">50 GB</option>
+                <option value="100">100 GB</option>
+                <option value="250">250 GB</option>
+                <option value="500">500 GB</option>
+              </select>
+            </div>
+          </div>
+        );
+      
+      default:
+        return null;
+    }
+  };
+
+  const renderCodeContent = (step) => {
+    let code, filename;
+    
+    switch (step.id) {
+      case 3: // Configuration File
+        code = generateConfigYaml();
+        filename = 'aifarm-config.yaml';
+        break;
+      case 4: // Deployment Script
+        code = generateDeploymentScript();
+        filename = 'deploy.sh';
+        break;
+      case 5: // Workflow Example
+        code = generateWorkflowExample();
+        filename = 'workflow.yaml';
+        break;
+      default:
+        return null;
+    }
+
+    return (
+      <div className="relative">
+        <div className="bg-gray-800 px-4 py-2 rounded-t-lg flex items-center justify-between">
+          <span className="text-green-400 text-sm font-mono">{filename}</span>
+          <button
+            onClick={() => copyToClipboard(code, step.id.toString())}
+            className="p-1 hover:bg-gray-700 rounded transition-colors duration-200"
+          >
+            {copiedSection === step.id.toString() ? (
+              <Check className="w-4 h-4 text-green-400" />
+            ) : (
+              <Copy className="w-4 h-4 text-gray-300" />
+            )}
+          </button>
+        </div>
+        <pre className="bg-gray-900 text-green-400 p-4 rounded-b-lg overflow-x-auto text-sm">
+          <code>{code}</code>
+        </pre>
+      </div>
+    );
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-green-50 via-emerald-50 to-teal-50 p-6">
+      <div className="max-w-4xl mx-auto">
+        {/* Header */}
+        <div className="text-center mb-12">
+          <div className="inline-flex items-center space-x-3 mb-4">
+            <div className="w-12 h-12 bg-gradient-to-r from-green-500 to-emerald-600 rounded-xl flex items-center justify-center">
+              <Server className="w-7 h-7 text-white" />
+            </div>
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
+              AiFarm Setup
+            </h1>
+          </div>
+          <p className="text-gray-600 text-lg mb-6">
+            Configure your deployment requirements and generate ready-to-use code
+          </p>
+          
+          {/* Progress Bar */}
+          <div className="relative">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-gray-700">Setup Progress</span>
+              <span className="text-sm font-bold text-green-600">{totalProgress}%</span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-3">
+              <div 
+                className="bg-gradient-to-r from-green-500 to-emerald-500 h-3 rounded-full transition-all duration-700 ease-out shadow-sm"
+                style={{ width: `${totalProgress}%` }}
+              ></div>
+            </div>
+          </div>
+        </div>
+
+        {/* Setup Steps */}
+        <div className="space-y-4">
+          {setupSteps.map((step) => {
+            const isExpanded = expandedStep === step.id;
+            const isCompleted = completedSteps.has(step.id);
+
+            return (
+              <div
+                key={step.id}
+                className={`bg-white rounded-2xl shadow-sm border-2 transition-all duration-300 overflow-hidden ${
+                  isCompleted 
+                    ? 'border-green-200 shadow-green-100' 
+                    : isExpanded 
+                      ? 'border-emerald-200 shadow-lg' 
+                      : 'border-gray-100 hover:border-gray-200 hover:shadow-md'
+                }`}
+              >
+                {/* Step Header */}
+                <div 
+                  className="p-6 cursor-pointer select-none"
+                  onClick={() => toggleStep(step.id)}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-4">
+                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-300 ${
+                        isCompleted 
+                          ? 'bg-green-100 text-green-600' 
+                          : 'bg-gray-100 text-gray-600'
+                      }`}>
+                        {isCompleted ? <Check className="w-6 h-6" /> : step.icon}
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="text-xl font-semibold text-gray-800 mb-1">
+                          {step.title}
+                        </h3>
+                        <p className="text-gray-600">
+                          {step.description}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-3">
+                      {step.type === 'config' && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            markStepComplete(step.id);
+                          }}
+                          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                            isCompleted
+                              ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                          }`}
+                        >
+                          {isCompleted ? 'Completed' : 'Mark Done'}
+                        </button>
+                      )}
+                      <div className={`transition-transform duration-300 ${
+                        isExpanded ? 'rotate-180' : ''
+                      }`}>
+                        <ChevronDown className="w-5 h-5 text-gray-400" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Step Content */}
+                <div className={`transition-all duration-300 ease-in-out ${
+                  isExpanded 
+                    ? 'max-h-screen opacity-100' 
+                    : 'max-h-0 opacity-0'
+                }`}>
+                  <div className="px-6 pb-6 pt-0">
+                    <div className="border-t border-gray-100 pt-6">
+                      {step.type === 'config' ? renderConfigContent(step) : renderCodeContent(step)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Completion Message */}
+        {completedSteps.size === 3 && ( // Only config steps need to be completed
+          <div className="mt-8 text-center">
+            <div className="bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl p-8 text-white">
+              <div className="w-16 h-16 bg-white bg-opacity-20 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Check className="w-8 h-8" />
+              </div>
+              <h3 className="text-2xl font-bold mb-2">
+                🎉 Configuration Complete!
+              </h3>
+              <p className="text-green-100 mb-6">
+                Your AiFarm setup is ready. Use the generated code above to deploy.
+              </p>
+              <div className="bg-white bg-opacity-20 rounded-lg p-4 text-left text-green-100 font-mono text-sm">
+                Namespace: {config.namespace}<br/>
+                GPU: {config.gpuCount === 0 ? 'None' : `${config.gpuCount}x ${config.gpuMemory}GB`}<br/>
+                Resources: {config.cpuCores} CPU, {config.memory}GB RAM, {config.storage}GB Storage
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default AiFarmSetupUI;
