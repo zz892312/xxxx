@@ -1,101 +1,620 @@
-# OpenShift Service Mesh & KServe Deployment – What We Learned
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AiFarm Onboarding Checklist</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-## Validation of Service Mesh Impact on OpenShift Routes
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 2rem;
+            color: #333;
+        }
 
-### What Happens
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+            overflow: hidden;
+        }
 
-Once a namespace is added to the `ServiceMeshMemberRoll`:
+        .header {
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+            color: white;
+            padding: 3rem 2rem;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
 
-- OpenShift Routes that point directly to services **stop working**
-- All external traffic is rerouted through the Istio Ingress Gateway
-- OpenShift’s built-in mTLS with routes doesn’t work anymore
+        .header::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="2" fill="rgba(255,255,255,0.1)"/></svg>') repeat;
+            animation: float 20s linear infinite;
+        }
 
-### Why This Happens
+        @keyframes float {
+            0% { transform: translate(-50%, -50%) rotate(0deg); }
+            100% { transform: translate(-50%, -50%) rotate(360deg); }
+        }
 
-Istio sidecars kick in and take over traffic control:
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            position: relative;
+            z-index: 1;
+        }
 
-- All external access has to go through the `istio-ingressgateway`
-- Internal services are expected to use Istio’s mTLS
-- OpenShift Routes bypass Istio, so the traffic doesn’t get handled the way Istio expects—and fails
+        .header p {
+            font-size: 1.2rem;
+            opacity: 0.9;
+            position: relative;
+            z-index: 1;
+        }
 
----
+        .progress-bar {
+            background: rgba(255, 255, 255, 0.2);
+            height: 8px;
+            border-radius: 4px;
+            margin-top: 2rem;
+            overflow: hidden;
+            position: relative;
+            z-index: 1;
+        }
 
-## KServe Deployment Modes: Trade-offs
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #fff, #f0f0f0);
+            border-radius: 4px;
+            width: 0%;
+            transition: width 0.5s ease;
+        }
 
-### RawDeployment Mode (No Istio/Knative)
+        .content {
+            padding: 2rem;
+        }
 
-Here’s an example configuration:
+        .checklist-section {
+            margin-bottom: 2rem;
+        }
 
-<pre><code>kserve:
-  defaultDeploymentMode: RawDeployment
-  managementState: Managed
-  serving:
-    managementState: Removed  # Turns off Knative
-</code></pre>
+        .section-header {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            padding: 1.5rem;
+            border-radius: 12px;
+            margin-bottom: 1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border-left: 4px solid #4CAF50;
+            user-select: none;
+        }
 
-### Why We Might Want This
+        .section-header:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+        }
 
-- **OpenShift Route Compatibility**: Native routes work as expected
-- **Network Flexibility**: Standard Ingress/LoadBalancers are usable
-- **Multi-Volume Support**: We can mount multiple volumes easily
-- **Simpler Architecture**: No Knative or Istio to manage
+        .section-header h2 {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 1.5rem;
+            color: #2c3e50;
+        }
 
-### What We Miss Out On
+        .section-header .icon {
+            font-size: 1.2rem;
+            transition: transform 0.3s ease;
+        }
 
-| Feature                  | RawDeployment | Serverless Mode (Knative/Istio) |
-|--------------------------|---------------|----------------------------------|
-| Scale-to-Zero            | No            | Yes                              |
-| Request-Based Scaling    | No            | Yes                              |
-| Canary Deployments       | No            | Yes                              |
-| Automatic mTLS           | No            | Yes                              |
-| Advanced Routing         | No            | Yes (retries, timeouts, etc.)    |
-| Serverless Billing Model | No            | Yes                              |
+        .section-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
 
----
+        .section-content.active {
+            max-height: 2000px;
+        }
 
-## Some Things to Watch Out For
+        .section-header.active .icon {
+            transform: rotate(180deg);
+        }
 
-### Scaling
+        .checklist-item {
+            display: flex;
+            align-items: flex-start;
+            padding: 1rem;
+            margin-bottom: 0.5rem;
+            background: white;
+            border-radius: 8px;
+            border: 2px solid #e9ecef;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
 
-- We'll need to configure Horizontal Pod Autoscalers (HPAs) manually
-- Scaling is based on CPU/memory metrics, not HTTP request volume
+        .checklist-item:hover {
+            border-color: #4CAF50;
+            transform: translateX(5px);
+        }
 
-### Security
+        .checklist-item.completed {
+            background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+            border-color: #4CAF50;
+        }
 
-- TLS termination must be handled manually at the OpenShift Route level
-- For service-to-service encryption, we'll need to manually configure mTLS or use other mechanisms
+        .checkbox {
+            width: 24px;
+            height: 24px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            margin-right: 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
 
-### Platform Constraints
+        .checkbox.checked {
+            background: #4CAF50;
+            border-color: #4CAF50;
+        }
 
-- Port conflicts can happen (e.g., Istio might already bind to port 8888)
-- RawDeployment mode is **not fully supported** on single-node OpenShift clusters
+        .checkbox.checked::after {
+            content: '✓';
+            color: white;
+            font-weight: bold;
+            font-size: 14px;
+        }
 
----
+        .item-content {
+            flex: 1;
+        }
 
-## When to Use RawDeployment
+        .item-title {
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+            color: #2c3e50;
+        }
 
-RawDeployment is a good fit if:
+        .item-description {
+            color: #6c757d;
+            font-size: 0.9rem;
+            line-height: 1.4;
+        }
 
-- When we want to keep using existing OpenShift Routes or LoadBalancers
-- When we don't need traffic-splitting features like canary or A/B testing
-- When we're comfortable handling autoscaling and security manually
+        .code-section {
+            margin-top: 1rem;
+            background: #f8f9fa;
+            border-radius: 8px;
+            overflow: hidden;
+        }
 
----
+        .code-header {
+            background: #343a40;
+            color: white;
+            padding: 0.75rem 1rem;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
 
-## Migration Checklist
+        .code-content {
+            padding: 1rem;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            line-height: 1.4;
+            background: #2d3748;
+            color: #e2e8f0;
+            margin: 0;
+            overflow-x: auto;
+        }
 
-- Set `serving.managementState` to `Removed` to disable Knative
-- Set KServe’s `defaultDeploymentMode` to `RawDeployment`
-- Configure Kubernetes HPA for autoscaling
-- Test OpenShift Routes to confirm they’re working
-- Set up TLS manually if required
+        .copy-btn {
+            background: #4CAF50;
+            border: none;
+            color: white;
+            padding: 0.25rem 0.75rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            transition: background 0.3s ease;
+        }
 
----
+        .copy-btn:hover {
+            background: #45a049;
+        }
 
-[RawDeployment mode has limited support – Red Hat Documentation](https://access.redhat.com)
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-top: 2rem;
+            padding: 2rem;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-radius: 12px;
+        }
 
+        .stat-card {
+            text-align: center;
+            padding: 1.5rem;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+        }
 
-https://docs.redhat.com/en/documentation/red_hat_openshift_serverless/1.31/html/integrations/serverless-ossm-setup
+        .stat-number {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #4CAF50;
+        }
 
-https://access.redhat.com/solutions/7078183
-https://docs.redhat.com/en/documentation/red_hat_openshift_serverless/1.31/html/integrations/serverless-ossm-setup
+        .stat-label {
+            color: #6c757d;
+            margin-top: 0.5rem;
+        }
+
+        .completion-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 25px;
+            font-weight: bold;
+            margin-top: 1rem;
+            opacity: 0;
+            transform: scale(0);
+            transition: all 0.5s ease;
+        }
+
+        .completion-badge.show {
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        @media (max-width: 768px) {
+            body {
+                padding: 1rem;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .content {
+                padding: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 Welcome to AiFarm</h1>
+            <p>Your journey to smart farming starts here</p>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+        </div>
+
+        <div class="content">
+            <div class="checklist-section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <h2>
+                        <span>🎯 Getting Started</span>
+                        <span class="icon">▼</span>
+                    </h2>
+                </div>
+                <div class="section-content">
+                    <div class="checklist-item" onclick="toggleItem(this)">
+                        <div class="checkbox"></div>
+                        <div class="item-content">
+                            <div class="item-title">Create Your AiFarm Account</div>
+                            <div class="item-description">Sign up and verify your email to access the platform</div>
+                            <div class="code-section">
+                                <div class="code-header">
+                                    <span>API Registration Example</span>
+                                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                                </div>
+                                <pre class="code-content">curl -X POST https://api.aifarm.com/v1/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "farmer@example.com",
+    "password": "secure_password",
+    "farm_name": "Green Valley Farm"
+  }'</pre>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="checklist-item" onclick="toggleItem(this)">
+                        <div class="checkbox"></div>
+                        <div class="item-content">
+                            <div class="item-title">Complete Profile Setup</div>
+                            <div class="item-description">Add your farm details, location, and crop preferences</div>
+                        </div>
+                    </div>
+
+                    <div class="checklist-item" onclick="toggleItem(this)">
+                        <div class="checkbox"></div>
+                        <div class="item-content">
+                            <div class="item-title">Download Mobile App</div>
+                            <div class="item-description">Get the AiFarm mobile app for on-the-go monitoring</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="checklist-section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <h2>
+                        <span>🔧 Platform Configuration</span>
+                        <span class="icon">▼</span>
+                    </h2>
+                </div>
+                <div class="section-content">
+                    <div class="checklist-item" onclick="toggleItem(this)">
+                        <div class="checkbox"></div>
+                        <div class="item-content">
+                            <div class="item-title">Connect IoT Sensors</div>
+                            <div class="item-description">Link your soil, weather, and crop monitoring devices</div>
+                            <div class="code-section">
+                                <div class="code-header">
+                                    <span>Sensor Configuration</span>
+                                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                                </div>
+                                <pre class="code-content">{
+  "sensor_config": {
+    "soil_moisture": {
+      "device_id": "SM_001",
+      "location": {"lat": 40.7128, "lng": -74.0060},
+      "threshold": {"min": 30, "max": 70}
+    },
+    "weather_station": {
+      "device_id": "WS_001",
+      "metrics": ["temperature", "humidity", "rainfall"]
+    }
+  }
+}</pre>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="checklist-item" onclick="toggleItem(this)">
+                        <div class="checkbox"></div>
+                        <div class="item-content">
+                            <div class="item-title">Set Up Field Mapping</div>
+                            <div class="item-description">Define your field boundaries and crop zones</div>
+                        </div>
+                    </div>
+
+                    <div class="checklist-item" onclick="toggleItem(this)">
+                        <div class="checkbox"></div>
+                        <div class="item-content">
+                            <div class="item-title">Configure Alerts</div>
+                            <div class="item-description">Set up notifications for critical farm conditions</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="checklist-section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <h2>
+                        <span>🤖 AI Features Setup</span>
+                        <span class="icon">▼</span>
+                    </h2>
+                </div>
+                <div class="section-content">
+                    <div class="checklist-item" onclick="toggleItem(this)">
+                        <div class="checkbox"></div>
+                        <div class="item-content">
+                            <div class="item-title">Train Crop Recognition Model</div>
+                            <div class="item-description">Upload crop images to improve AI identification accuracy</div>
+                            <div class="code-section">
+                                <div class="code-header">
+                                    <span>Model Training API</span>
+                                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                                </div>
+                                <pre class="code-content">const formData = new FormData();
+formData.append('crop_type', 'tomato');
+formData.append('growth_stage', 'flowering');
+formData.append('image', imageFile);
+
+fetch('https://api.aifarm.com/v1/train-model', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer YOUR_API_KEY'
+  },
+  body: formData
+});</pre>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="checklist-item" onclick="toggleItem(this)">
+                        <div class="checkbox"></div>
+                        <div class="item-content">
+                            <div class="item-title">Enable Predictive Analytics</div>
+                            <div class="item-description">Activate yield prediction and disease detection</div>
+                        </div>
+                    </div>
+
+                    <div class="checklist-item" onclick="toggleItem(this)">
+                        <div class="checkbox"></div>
+                        <div class="item-content">
+                            <div class="item-title">Set Up Automated Recommendations</div>
+                            <div class="item-description">Configure AI-driven farming suggestions</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="checklist-section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <h2>
+                        <span>🎓 Learning & Support</span>
+                        <span class="icon">▼</span>
+                    </h2>
+                </div>
+                <div class="section-content">
+                    <div class="checklist-item" onclick="toggleItem(this)">
+                        <div class="checkbox"></div>
+                        <div class="item-content">
+                            <div class="item-title">Complete Quick Start Tutorial</div>
+                            <div class="item-description">Follow the interactive guide to learn key features</div>
+                        </div>
+                    </div>
+
+                    <div class="checklist-item" onclick="toggleItem(this)">
+                        <div class="checkbox"></div>
+                        <div class="item-content">
+                            <div class="item-title">Join Community Forum</div>
+                            <div class="item-description">Connect with other farmers and get support</div>
+                        </div>
+                    </div>
+
+                    <div class="checklist-item" onclick="toggleItem(this)">
+                        <div class="checkbox"></div>
+                        <div class="item-content">
+                            <div class="item-title">Schedule Support Call</div>
+                            <div class="item-description">Book a 1-on-1 session with our farm specialists</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="stats">
+                <div class="stat-card">
+                    <div class="stat-number" id="completedCount">0</div>
+                    <div class="stat-label">Completed Tasks</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="totalCount">12</div>
+                    <div class="stat-label">Total Tasks</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="progressPercent">0%</div>
+                    <div class="stat-label">Progress</div>
+                </div>
+            </div>
+
+            <div class="completion-badge" id="completionBadge">
+                🎉 Congratulations! You're ready to farm smarter!
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let completedTasks = 0;
+        const totalTasks = 12;
+
+        function toggleSection(header) {
+            const content = header.nextElementSibling;
+            const icon = header.querySelector('.icon');
+            
+            content.classList.toggle('active');
+            header.classList.toggle('active');
+            
+            // Reset section styling when manually opened
+            if (content.classList.contains('active')) {
+                header.style.background = 'linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)';
+                header.style.borderLeft = '4px solid #4CAF50';
+            }
+        }
+
+        function toggleItem(item) {
+            const checkbox = item.querySelector('.checkbox');
+            const isCompleted = checkbox.classList.contains('checked');
+            
+            if (isCompleted) {
+                checkbox.classList.remove('checked');
+                item.classList.remove('completed');
+                completedTasks--;
+            } else {
+                checkbox.classList.add('checked');
+                item.classList.add('completed');
+                completedTasks++;
+            }
+            
+            updateProgress();
+            checkSectionCompletion(item);
+        }
+
+        function checkSectionCompletion(item) {
+            const section = item.closest('.checklist-section');
+            const sectionItems = section.querySelectorAll('.checklist-item');
+            const completedItems = section.querySelectorAll('.checklist-item.completed');
+            
+            // If all items in the section are completed, auto-collapse after a delay
+            if (sectionItems.length === completedItems.length) {
+                setTimeout(() => {
+                    const header = section.querySelector('.section-header');
+                    const content = section.querySelector('.section-content');
+                    
+                    if (content.classList.contains('active')) {
+                        content.classList.remove('active');
+                        header.classList.remove('active');
+                        
+                        // Add a visual indicator that section is complete
+                        header.style.background = 'linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%)';
+                        header.style.borderLeft = '4px solid #28a745';
+                    }
+                }, 500); // 0.5 second delay to let user see completion
+            }
+        }
+
+        function updateProgress() {
+            const progressPercent = Math.round((completedTasks / totalTasks) * 100);
+            
+            document.getElementById('progressFill').style.width = progressPercent + '%';
+            document.getElementById('completedCount').textContent = completedTasks;
+            document.getElementById('progressPercent').textContent = progressPercent + '%';
+            
+            if (completedTasks === totalTasks) {
+                document.getElementById('completionBadge').classList.add('show');
+            } else {
+                document.getElementById('completionBadge').classList.remove('show');
+            }
+        }
+
+        function copyCode(button) {
+            const codeContent = button.closest('.code-section').querySelector('.code-content');
+            const text = codeContent.textContent;
+            
+            navigator.clipboard.writeText(text).then(() => {
+                const originalText = button.textContent;
+                button.textContent = 'Copied!';
+                button.style.background = '#28a745';
+                
+                setTimeout(() => {
+                    button.textContent = originalText;
+                    button.style.background = '#4CAF50';
+                }, 2000);
+            });
+        }
+
+        // Initialize first section as open
+        document.querySelector('.section-header').click();
+    </script>
+</body>
+</html>
