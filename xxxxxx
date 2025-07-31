@@ -18,3 +18,15 @@ spec:
         env:
         - name: OAUTH_PROXY_ENABLED
           value: "false"  # Disable OAuth proxy if present
+
+
+# In your deployment/pod spec
+containers:
+- name: oauth-proxy
+  args:
+  - --upstream=http://localhost:8080/
+  - --provider=openshift
+  - --openshift-service-account=your-sa
+  - --cookie-secret=SECRET
+  - --skip-auth-regex=^/api/.*$  # Skip OAuth for API endpoints
+  - --pass-bearer-token=true
