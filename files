@@ -1,35 +1,42 @@
-initContainers:
-        - name: storage-initializer
-          image: your-registry/storage-initializer-with-cert:latest
-          args:
-            - "s3://your-bucket/model"
-            - "/mnt/models"
-          env:
-            - name: AWS_ACCESS_KEY_ID
-              valueFrom:
-                secretKeyRef:
-                  name: your-s3-secret
-                  key: AWS_ACCESS_KEY_ID
-            - name: AWS_SECRET_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: your-s3-secret
-                  key: AWS_SECRET_ACCESS_KEY
-            - name: AWS_REGION
-              value: "us-west-2"
-            - name: AWS_ENDPOINT_URL  # if using custom S3 endpoint
-              value: "https://your-s3-endpoint"
-RUN mkdir -p /mnt/models && \
-    chmod 755 /mnt/models && \
-    chown -R 65532:65532 /mnt/models
-
-# Switch back to non-root user (if the base image uses one)
-USER 65532
-
-
- - name: SSL_CERT_FILE
-              value: "/etc/ssl/certs/ca-cert.pem"
-            - name: AWS_CA_BUNDLE
-              value: "/etc/ssl/certs/ca-cert.pem"
-            - name: CURL_CA_BUNDLE
-              value: "/etc/ssl/certs/ca-cert.pem"
+# ConfigMap MUST be in kserve namespace
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: s3-certs
+  namespace: kserve  # Must be kserve namespace
+data:
+  ca-cert.pem: |
+    -----BEGIN CERTIFICATE-----
+    # Your certificate content here
+    -----END CERTIFICATE-----
+---
+apiVersion: serving.kserve.io/v1alpha1
+kind: ClusterStorageContainer
+metadata:
+  name: s3-with-cert
+spec:
+  container:
+    name: storage-initializer
+    image: kserve/storage-initializer:latest
+    env:
+      - name: SSL_CERT_FILE
+        value: /etc/ssl/certs/ca-cert.pem
+      - name: AWS_CA_BUNDLE
+        value: /etc/ssl/certs/ca-cert.pem
+    volumeMounts:
+      - name: ca-cert
+        mountPath: /etc/ssl/certs/ca-cert.pem
+        subPath: ca-cert.pem
+    resources:
+      requests:
+        memory: 100Mi
+        cpu: 100m
+      limits:
+        memory: 1Gi
+        cpu: "1"
+  volumes:
+    - name: ca-cert
+      configMap:
+        name: s3-certs
+  supportedUriFormats:
+    - prefix: s3://
