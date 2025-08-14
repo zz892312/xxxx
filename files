@@ -19,3 +19,9 @@ initContainers:
               value: "us-west-2"
             - name: AWS_ENDPOINT_URL  # if using custom S3 endpoint
               value: "https://your-s3-endpoint"
+RUN mkdir -p /mnt/models && \
+    chmod 755 /mnt/models && \
+    chown -R 65532:65532 /mnt/models
+
+# Switch back to non-root user (if the base image uses one)
+USER 65532
