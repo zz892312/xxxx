@@ -25,3 +25,11 @@ RUN mkdir -p /mnt/models && \
 
 # Switch back to non-root user (if the base image uses one)
 USER 65532
+
+
+ - name: SSL_CERT_FILE
+              value: "/etc/ssl/certs/ca-cert.pem"
+            - name: AWS_CA_BUNDLE
+              value: "/etc/ssl/certs/ca-cert.pem"
+            - name: CURL_CA_BUNDLE
+              value: "/etc/ssl/certs/ca-cert.pem"
