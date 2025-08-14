@@ -1,12 +1,21 @@
-apiVersion: serving.kserve.io/v1beta1
-kind: InferenceService
-metadata:
-  name: test-model
-  annotations:
-    serving.kserve.io/storage-initializer-sourceuri: "s3://your-bucket/model"
-    # Override the storage initializer image
-    serving.kserve.io/storage-initializer-image: "your-registry/storage-initializer-with-cert:latest"
-spec:
-  predictor:
-    sklearn:
-      storageUri: "s3://your-bucket/model"
+initContainers:
+        - name: storage-initializer
+          image: your-registry/storage-initializer-with-cert:latest
+          args:
+            - "s3://your-bucket/model"
+            - "/mnt/models"
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: your-s3-secret
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: your-s3-secret
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_REGION
+              value: "us-west-2"
+            - name: AWS_ENDPOINT_URL  # if using custom S3 endpoint
+              value: "https://your-s3-endpoint"
