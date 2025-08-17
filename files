@@ -1,18 +1,1304 @@
-FROM kserve/storage-initializer:latest
+"""
+KServe Inference Service API - Restructured with Runtime-Specific Logic
+"""
 
-# Switch to root to install certificates
-USER root
+# Project Structure:
+"""
+src/
+├── app.py                      # FastAPI application entry point
+├── services/
+│   ├── inference_service.py    # Core KServe service generation
+│   └── utils.py               # Configuration management utilities
+├── runtimes/
+│   ├── __init__.py            # Runtime factory and base classes
+│   ├── base.py                # Base runtime class
+│   ├── triton.py              # Triton-specific logic
+│   ├── sklearn.py             # SKLearn-specific logic
+│   └── vllm.py                # vLLM-specific logic
+└── routers/
+    └── generate.py            # API endpoints for service generation
+"""
 
-# Copy your certificate
-COPY ca-cert.pem /usr/local/share/ca-certificates/ca-cert.crt
+# src/runtimes/__init__.py
+from .base import BaseRuntime
+from .triton import TritonRuntime
+from .sklearn import SKLearnRuntime
+from .vllm import VLLMRuntime
+from typing import Dict, Any
 
-# Update CA certificates and fix permissions
-RUN update-ca-certificates && \
-    chmod 644 /usr/local/share/ca-certificates/ca-cert.crt
+class RuntimeFactory:
+    """Factory class to create runtime-specific handlers"""
+    
+    _runtimes = {
+        'triton': TritonRuntime,
+        'sklearn': SKLearnRuntime,
+        'vllm': VLLMRuntime
+    }
+    
+    @classmethod
+    def create_runtime(cls, runtime_type: str, config: Dict[str, Any]) -> BaseRuntime:
+        """Create appropriate runtime handler based on type"""
+        runtime_type = runtime_type.lower()
+        if runtime_type not in cls._runtimes:
+            raise ValueError(f"Unsupported runtime type: {runtime_type}")
+        
+        return cls._runtimes[runtime_type](config)
+    
+    @classmethod
+    def get_supported_runtimes(cls) -> Dict[str, Dict[str, Any]]:
+        """Get information about all supported runtimes"""
+        return {
+            name: runtime_class.get_runtime_info() 
+            for name, runtime_class in cls._runtimes.items()
+        }
 
-# Set SSL environment variables
-ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
-ENV AWS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+# src/runtimes/base.py
+from abc import ABC, abstractmethod
+from kubernetes import client
+from kserve import V1beta1PredictorSpec
+from typing import Dict, Any, List
 
-# Switch back to the non-root user (kserve uses uid 65532)
-USER 65532
+class BaseRuntime(ABC):
+    """Base class for all runtime implementations"""
+    
+    def __init__(self, config: Dict[str, Any]):
+        self.config = config
+        self.name = config.get('name', 'default-service')
+        self.storage_uri = config.get('storage_uri')
+        self.min_replicas = config.get('min_replicas', 1)
+        self.max_replicas = config.get('max_replicas', self.min_replicas * 3)
+    
+    @abstractmethod
+    def create_predictor_spec(self, resources: client.V1ResourceRequirements) -> V1beta1PredictorSpec:
+        """Create runtime-specific predictor specification"""
+        pass
+    
+    @abstractmethod
+    def validate_config(self) -> List[str]:
+        """Validate runtime-specific configuration"""
+        pass
+    
+    @classmethod
+    @abstractmethod
+    def get_runtime_info(cls) -> Dict[str, Any]:
+        """Get runtime information and capabilities"""
+        pass
+    
+    def build_resource_requirements(self) -> client.V1ResourceRequirements:
+        """Build Kubernetes resource requirements from config"""
+        requests = {}
+        limits = {}
+        
+        # CPU resources
+        if self.config.get('cpu_request'):
+            requests['cpu'] = str(self.config['cpu_request'])
+        if self.config.get('cpu_limit'):
+            limits['cpu'] = str(self.config['cpu_limit'])
+            
+        # Memory resources
+        if self.config.get('memory_request'):
+            requests['memory'] = self.config['memory_request']
+        if self.config.get('memory_limit'):
+            limits['memory'] = self.config['memory_limit']
+            
+        # GPU resources
+        if self.config.get('gpu_request'):
+            requests['nvidia.com/gpu'] = str(self.config['gpu_request'])
+        if self.config.get('gpu_limit'):
+            limits['nvidia.com/gpu'] = str(self.config['gpu_limit'])
+        
+        return client.V1ResourceRequirements(
+            requests=requests if requests else None,
+            limits=limits if limits else None
+        )
+    
+    def create_env_vars(self, additional_vars: Dict[str, str] = None) -> List[client.V1EnvVar]:
+        """Create environment variables for the runtime"""
+        env_vars = []
+        
+        # Add S3 credentials if specified
+        if self.config.get('s3_secret'):
+            env_vars.extend([
+                client.V1EnvVar(
+                    name="AWS_ACCESS_KEY_ID",
+                    value_from=client.V1EnvVarSource(
+                        secret_key_ref=client.V1SecretKeySelector(
+                            name=self.config['s3_secret'],
+                            key="access_key_id"
+                        )
+                    )
+                ),
+                client.V1EnvVar(
+                    name="AWS_SECRET_ACCESS_KEY",
+                    value_from=client.V1EnvVarSource(
+                        secret_key_ref=client.V1SecretKeySelector(
+                            name=self.config['s3_secret'],
+                            key="secret_access_key"
+                        )
+                    )
+                )
+            ])
+        
+        # Add additional environment variables
+        if additional_vars:
+            for key, value in additional_vars.items():
+                env_vars.append(client.V1EnvVar(name=key, value=value))
+        
+        return env_vars
+
+# src/runtimes/triton.py
+from kubernetes import client
+from kserve import V1beta1PredictorSpec, V1beta1TritonSpec
+from .base import BaseRuntime
+from typing import Dict, Any, List
+
+class TritonRuntime(BaseRuntime):
+    """Triton Inference Server runtime implementation"""
+    
+    def create_predictor_spec(self, resources: client.V1ResourceRequirements) -> V1beta1PredictorSpec:
+        """Create Triton-specific predictor specification"""
+        predictor_spec = V1beta1PredictorSpec(
+            min_replicas=self.min_replicas,
+            max_replicas=self.max_replicas
+        )
+        
+        # Create Triton specification
+        triton_spec = V1beta1TritonSpec(
+            storage_uri=self.storage_uri,
+            resources=resources
+        )
+        
+        # Add runtime version
+        if self.config.get('triton_version'):
+            triton_spec.runtime_version = self.config['triton_version']
+        
+        # Add custom image
+        if self.config.get('custom_image'):
+            triton_spec.image = self.config['custom_image']
+        
+        # Add Triton-specific environment variables
+        env_vars = self.create_env_vars(self._get_triton_env_vars())
+        if env_vars:
+            triton_spec.env = env_vars
+        
+        # Add protocol version if specified
+        if self.config.get('protocol_version'):
+            triton_spec.protocol_version = self.config['protocol_version']
+        
+        predictor_spec.triton = triton_spec
+        return predictor_spec
+    
+    def _get_triton_env_vars(self) -> Dict[str, str]:
+        """Get Triton-specific environment variables"""
+        env_vars = {}
+        
+        if self.config.get('model_repository_path'):
+            env_vars['TRITON_MODEL_REPOSITORY'] = self.config['model_repository_path']
+        
+        if self.config.get('triton_server_args'):
+            env_vars['TRITON_SERVER_ARGS'] = self.config['triton_server_args']
+        
+        if self.config.get('log_verbose'):
+            env_vars['TRITON_LOG_VERBOSE'] = str(self.config['log_verbose'])
+        
+        if self.config.get('model_control_mode'):
+            env_vars['TRITON_MODEL_CONTROL_MODE'] = self.config['model_control_mode']
+        
+        return env_vars
+    
+    def validate_config(self) -> List[str]:
+        """Validate Triton-specific configuration"""
+        errors = []
+        
+        # Validate Triton version format
+        if self.config.get('triton_version'):
+            version = self.config['triton_version']
+            if not isinstance(version, str) or not version.replace('.', '').isdigit():
+                errors.append("triton_version must be in format 'XX.YY'")
+        
+        # Validate model control mode
+        valid_control_modes = ['none', 'poll', 'explicit']
+        if self.config.get('model_control_mode'):
+            if self.config['model_control_mode'] not in valid_control_modes:
+                errors.append(f"model_control_mode must be one of: {', '.join(valid_control_modes)}")
+        
+        # Validate log verbose level
+        if self.config.get('log_verbose'):
+            try:
+                log_level = int(self.config['log_verbose'])
+                if log_level < 0 or log_level > 4:
+                    errors.append("log_verbose must be between 0 and 4")
+            except ValueError:
+                errors.append("log_verbose must be a valid integer")
+        
+        return errors
+    
+    @classmethod
+    def get_runtime_info(cls) -> Dict[str, Any]:
+        return {
+            "name": "triton",
+            "description": "NVIDIA Triton Inference Server",
+            "supported_formats": ["tensorrt", "onnx", "pytorch", "tensorflow", "python", "dali"],
+            "gpu_support": True,
+            "custom_parameters": [
+                "triton_version", "custom_image", "model_repository_path",
+                "triton_server_args", "log_verbose", "model_control_mode", "protocol_version"
+            ]
+        }
+
+# src/runtimes/sklearn.py
+from kubernetes import client
+from kserve import V1beta1PredictorSpec, V1beta1SKLearnSpec
+from .base import BaseRuntime
+from typing import Dict, Any, List
+
+class SKLearnRuntime(BaseRuntime):
+    """Scikit-learn runtime implementation"""
+    
+    def create_predictor_spec(self, resources: client.V1ResourceRequirements) -> V1beta1PredictorSpec:
+        """Create SKLearn-specific predictor specification"""
+        predictor_spec = V1beta1PredictorSpec(
+            min_replicas=self.min_replicas,
+            max_replicas=self.max_replicas
+        )
+        
+        # Create SKLearn specification
+        sklearn_spec = V1beta1SKLearnSpec(
+            storage_uri=self.storage_uri,
+            resources=resources
+        )
+        
+        # Add runtime version
+        if self.config.get('sklearn_version'):
+            sklearn_spec.runtime_version = self.config['sklearn_version']
+        
+        # Add custom image
+        if self.config.get('custom_image'):
+            sklearn_spec.image = self.config['custom_image']
+        
+        # Add environment variables
+        env_vars = self.create_env_vars(self._get_sklearn_env_vars())
+        if env_vars:
+            sklearn_spec.env = env_vars
+        
+        predictor_spec.sklearn = sklearn_spec
+        return predictor_spec
+    
+    def _get_sklearn_env_vars(self) -> Dict[str, str]:
+        """Get SKLearn-specific environment variables"""
+        env_vars = {}
+        
+        # Add any sklearn-specific environment variables
+        if self.config.get('model_name'):
+            env_vars['MODEL_NAME'] = self.config['model_name']
+        
+        if self.config.get('protocol_version'):
+            env_vars['PROTOCOL_VERSION'] = self.config['protocol_version']
+        
+        return env_vars
+    
+    def validate_config(self) -> List[str]:
+        """Validate SKLearn-specific configuration"""
+        errors = []
+        
+        # Validate sklearn version format
+        if self.config.get('sklearn_version'):
+            version = self.config['sklearn_version']
+            if not isinstance(version, str):
+                errors.append("sklearn_version must be a string")
+        
+        return errors
+    
+    @classmethod
+    def get_runtime_info(cls) -> Dict[str, Any]:
+        return {
+            "name": "sklearn",
+            "description": "Scikit-learn models",
+            "supported_formats": ["pickle", "joblib"],
+            "gpu_support": False,
+            "custom_parameters": ["sklearn_version", "custom_image", "model_name", "protocol_version"]
+        }
+
+# src/runtimes/vllm.py
+from kubernetes import client
+from kserve import V1beta1PredictorSpec, V1beta1ModelSpec, V1beta1ModelFormat
+from .base import BaseRuntime
+from typing import Dict, Any, List
+
+class VLLMRuntime(BaseRuntime):
+    """vLLM runtime implementation for large language models"""
+    
+    def create_predictor_spec(self, resources: client.V1ResourceRequirements) -> V1beta1PredictorSpec:
+        """Create vLLM-specific predictor specification"""
+        predictor_spec = V1beta1PredictorSpec(
+            min_replicas=self.min_replicas,
+            max_replicas=self.max_replicas
+        )
+        
+        # Create vLLM Model specification
+        model_spec = V1beta1ModelSpec(
+            model_format=V1beta1ModelFormat(name="vllm"),
+            storage_uri=self.storage_uri,
+            resources=resources
+        )
+        
+        # Add runtime version
+        if self.config.get('vllm_version'):
+            model_spec.runtime_version = self.config['vllm_version']
+        
+        # Add custom image
+        if self.config.get('custom_image'):
+            model_spec.image = self.config['custom_image']
+        
+        # Add vLLM-specific environment variables
+        env_vars = self.create_env_vars(self._get_vllm_env_vars())
+        if env_vars:
+            model_spec.env = env_vars
+        
+        predictor_spec.model = model_spec
+        return predictor_spec
+    
+    def _get_vllm_env_vars(self) -> Dict[str, str]:
+        """Get vLLM-specific environment variables"""
+        env_vars = {}
+        
+        # vLLM specific configurations
+        if self.config.get('tensor_parallel_size'):
+            env_vars['TENSOR_PARALLEL_SIZE'] = str(self.config['tensor_parallel_size'])
+        
+        if self.config.get('max_model_len'):
+            env_vars['MAX_MODEL_LEN'] = str(self.config['max_model_len'])
+        
+        if self.config.get('trust_remote_code'):
+            env_vars['TRUST_REMOTE_CODE'] = str(self.config['trust_remote_code']).lower()
+        
+        if self.config.get('dtype'):
+            env_vars['DTYPE'] = self.config['dtype']
+        
+        if self.config.get('quantization'):
+            env_vars['QUANTIZATION'] = self.config['quantization']
+        
+        if self.config.get('served_model_name'):
+            env_vars['SERVED_MODEL_NAME'] = self.config['served_model_name']
+        
+        return env_vars
+    
+    def validate_config(self) -> List[str]:
+        """Validate vLLM-specific configuration"""
+        errors = []
+        
+        # Validate tensor parallel size
+        if self.config.get('tensor_parallel_size'):
+            try:
+                tp_size = int(self.config['tensor_parallel_size'])
+                if tp_size < 1:
+                    errors.append("tensor_parallel_size must be >= 1")
+            except ValueError:
+                errors.append("tensor_parallel_size must be a valid integer")
+        
+        # Validate max model length
+        if self.config.get('max_model_len'):
+            try:
+                max_len = int(self.config['max_model_len'])
+                if max_len < 1:
+                    errors.append("max_model_len must be >= 1")
+            except ValueError:
+                errors.append("max_model_len must be a valid integer")
+        
+        # Validate dtype
+        valid_dtypes = ['auto', 'half', 'float16', 'bfloat16', 'float', 'float32']
+        if self.config.get('dtype') and self.config['dtype'] not in valid_dtypes:
+            errors.append(f"dtype must be one of: {', '.join(valid_dtypes)}")
+        
+        # Validate quantization
+        valid_quantizations = ['awq', 'gptq', 'squeezellm', 'fp8']
+        if self.config.get('quantization') and self.config['quantization'] not in valid_quantizations:
+            errors.append(f"quantization must be one of: {', '.join(valid_quantizations)}")
+        
+        return errors
+    
+    @classmethod
+    def get_runtime_info(cls) -> Dict[str, Any]:
+        return {
+            "name": "vllm",
+            "description": "vLLM for large language models",
+            "supported_formats": ["huggingface", "pytorch"],
+            "gpu_support": True,
+            "custom_parameters": [
+                "vllm_version", "custom_image", "tensor_parallel_size", "max_model_len",
+                "trust_remote_code", "dtype", "quantization", "served_model_name"
+            ]
+        }
+
+# src/services/inference_service.py (Updated)
+from kubernetes import client
+from kserve import KServeClient, V1beta1InferenceService, V1beta1InferenceServiceSpec
+from runtimes import RuntimeFactory
+import yaml
+from typing import Dict, Any, Optional
+from pathlib import Path
+import logging
+
+logger = logging.getLogger(__name__)
+
+class InferenceServiceManager:
+    def __init__(self):
+        self.kserve_client = KServeClient()
+    
+    def create_inference_service_from_config(self, config: Dict[str, Any], environment: str) -> Dict[str, Any]:
+        """Create KServe InferenceService from configuration using runtime-specific logic"""
+        try:
+            # Extract configuration values
+            service_name = config.get('name', 'default-inference-service')
+            runtime_type = config.get('runtime_type', 'sklearn')
+            
+            # Create runtime-specific handler
+            runtime_handler = RuntimeFactory.create_runtime(runtime_type, config)
+            
+            # Build resource requirements
+            resources = runtime_handler.build_resource_requirements()
+            
+            # Create predictor spec using runtime-specific logic
+            predictor_spec = runtime_handler.create_predictor_spec(resources)
+            
+            # Create InferenceService spec
+            inference_service_spec = V1beta1InferenceServiceSpec(
+                predictor=predictor_spec
+            )
+            
+            # Create InferenceService
+            inference_service = V1beta1InferenceService(
+                api_version="serving.kserve.io/v1beta1",
+                kind="InferenceService",
+                metadata=client.V1ObjectMeta(
+                    name=service_name,
+                    namespace=environment,
+                    labels={
+                        "app": service_name,
+                        "runtime": runtime_type,
+                        "environment": environment
+                    }
+                ),
+                spec=inference_service_spec
+            )
+            
+            # Convert to dict for YAML output
+            service_dict = self.kserve_client.api_client.sanitize_for_serialization(inference_service)
+            
+            # Add OpenShift route if specified
+            if config.get('route') == 'default':
+                route_config = self._create_openshift_route(service_name, environment)
+                return {
+                    'inference_service': service_dict,
+                    'route': route_config,
+                    'environment': environment
+                }
+            
+            return {
+                'inference_service': service_dict,
+                'environment': environment
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to create inference service: {str(e)}")
+            raise
+    
+    def validate_runtime_config(self, config: Dict[str, Any]) -> tuple[bool, list[str]]:
+        """Validate runtime-specific configuration"""
+        try:
+            runtime_type = config.get('runtime_type', 'sklearn')
+            runtime_handler = RuntimeFactory.create_runtime(runtime_type, config)
+            
+            # Get runtime-specific validation errors
+            runtime_errors = runtime_handler.validate_config()
+            
+            return len(runtime_errors) == 0, runtime_errors
+        except Exception as e:
+            return False, [f"Runtime validation failed: {str(e)}"]
+    
+    def _create_openshift_route(self, service_name: str, environment: str) -> Dict[str, Any]:
+        """Create OpenShift Route configuration"""
+        return {
+            "apiVersion": "route.openshift.io/v1",
+            "kind": "Route",
+            "metadata": {
+                "name": f"{service_name}-route",
+                "namespace": environment,
+                "labels": {
+                    "app": service_name,
+                    "environment": environment
+                }
+            },
+            "spec": {
+                "to": {
+                    "kind": "Service",
+                    "name": f"{service_name}-predictor-default"
+                },
+                "port": {
+                    "targetPort": "http"
+                },
+                "tls": {
+                    "termination": "edge"
+                }
+            }
+        }
+
+# src/routers/generate.py (Updated with Swagger Documentation)
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+from typing import Optional, List, Dict, Any
+import yaml
+import io
+from services.inference_service import InferenceServiceManager
+from services.utils import ConfigManager
+from runtimes import RuntimeFactory
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Pydantic models for API documentation
+class ConfigSummary(BaseModel):
+    """Configuration file summary"""
+    name: Optional[str] = Field(None, description="Service name from configuration")
+    runtime_type: Optional[str] = Field(None, description="Runtime type (triton, sklearn, vllm)")
+    storage_uri: Optional[str] = Field(None, description="Model storage URI")
+
+class ValidationResponse(BaseModel):
+    """Configuration validation response"""
+    valid: bool = Field(description="Whether the configuration is valid")
+    errors: List[str] = Field(description="List of validation errors if invalid")
+    environment: str = Field(description="Detected or specified environment")
+    config_summary: ConfigSummary = Field(description="Summary of configuration parameters")
+
+class RuntimeInfo(BaseModel):
+    """Runtime information model"""
+    name: str = Field(description="Runtime name")
+    description: str = Field(description="Runtime description")
+    supported_formats: List[str] = Field(description="Supported model formats")
+    gpu_support: bool = Field(description="Whether runtime supports GPU")
+    custom_parameters: List[str] = Field(description="Runtime-specific configuration parameters")
+
+class SupportedRuntimesResponse(BaseModel):
+    """Response model for supported runtimes"""
+    supported_runtimes: Dict[str, RuntimeInfo] = Field(description="Dictionary of supported runtimes")
+
+class HealthResponse(BaseModel):
+    """Health check response"""
+    status: str = Field(description="Health status")
+    version: str = Field(description="API version")
+
+class RootResponse(BaseModel):
+    """Root endpoint response"""
+    message: str = Field(description="Welcome message")
+    version: str = Field(description="API version") 
+    docs_url: str = Field(description="Swagger documentation URL")
+    health_url: str = Field(description="Health check URL")
+    supported_runtimes_url: str = Field(description="Supported runtimes endpoint URL")
+
+router = APIRouter()
+
+@router.post(
+    "/generate",
+    tags=["Generation"],
+    summary="Generate InferenceService",
+    description="""
+    ## 🚀 Generate KServe InferenceService Configuration
+    
+    Upload a YAML configuration file to generate a complete KServe InferenceService specification.
+    
+    ### 📋 Input Requirements:
+    - **config_file**: YAML file with inference service configuration
+    - **environment**: (Optional) Override environment detection
+    
+    ### 📤 Response:
+    - Downloads generated `inference_service.yaml` 
+    - Includes OpenShift Route if `route: "default"` specified
+    - Sets `X-Environment` header with detected/specified environment
+    
+    ### 🎯 Supported Runtimes:
+    - **Triton**: High-performance inference server
+    - **SKLearn**: Scikit-learn model serving  
+    - **vLLM**: Large language model serving
+    
+    ### 📁 Example Config:
+    ```yaml
+    name: my-triton-service
+    storage_uri: s3://my-bucket/models/
+    runtime_type: triton
+    s3_secret: model-credentials
+    min_replicas: 1
+    cpu_request: "2"
+    memory_request: "4Gi"
+    gpu_request: "1" 
+    route: "default"
+    ```
+    """,
+    responses={
+        200: {
+            "description": "Generated InferenceService YAML file",
+            "content": {"application/x-yaml": {"example": "# Generated KServe InferenceService YAML"}},
+            "headers": {
+                "X-Environment": {
+                    "description": "Detected or specified environment",
+                    "schema": {"type": "string", "example": "aifarm-rnd-dev"}
+                },
+                "Content-Disposition": {
+                    "description": "Attachment filename",
+                    "schema": {"type": "string", "example": "attachment; filename=my-service.yaml"}
+                }
+            }
+        },
+        400: {"description": "Configuration validation failed"},
+        500: {"description": "Internal server error"}
+    }
+)
+async def generate_inference_service(
+    config_file: UploadFile = File(
+        ...,
+        description="YAML configuration file (.yaml or .yml)",
+        media_type="application/x-yaml"
+    ),
+    environment: Optional[str] = Form(
+        None,
+        description="Target environment (overrides auto-detection)",
+        regex="^(aifarm-rnd-dev|aifarm-rnd-qat|aifarm-rnd-prod)$"
+    )
+):
+    """Generate KServe InferenceService from configuration file"""
+    try:
+        # Validate file type
+        if not config_file.filename.endswith(('.yaml', '.yml')):
+            raise HTTPException(
+                status_code=400, 
+                detail="File must be a YAML configuration file (.yaml or .yml)"
+            )
+        
+        # Read and parse configuration
+        file_content = await config_file.read()
+        config = ConfigManager.parse_config_file(file_content)
+        
+        # Validate basic configuration
+        is_valid, errors = ConfigManager.validate_config(config)
+        if not is_valid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Configuration validation failed: {', '.join(errors)}"
+            )
+        
+        # Validate runtime-specific configuration
+        service_manager = InferenceServiceManager()
+        runtime_valid, runtime_errors = service_manager.validate_runtime_config(config)
+        if not runtime_valid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Runtime validation failed: {', '.join(runtime_errors)}"
+            )
+        
+        # Determine environment
+        if not environment:
+            environment = ConfigManager.determine_environment_from_path(
+                config_file.filename
+            )
+        
+        # Generate InferenceService
+        result = service_manager.create_inference_service_from_config(
+            config, environment
+        )
+        
+        # Create YAML output
+        yaml_output = yaml.dump(result, default_flow_style=False, indent=2)
+        
+        # Return as downloadable file
+        output_filename = f"{config.get('name', 'inference-service')}.yaml"
+        
+        return StreamingResponse(
+            io.BytesIO(yaml_output.encode()),
+            media_type="application/x-yaml",
+            headers={
+                "Content-Disposition": f"attachment; filename={output_filename}",
+                "X-Environment": environment
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to generate inference service: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
+
+@router.post(
+    "/validate", 
+    tags=["Validation"],
+    summary="Validate Configuration", 
+    description="""
+    ## ✅ Validate Configuration File
+    
+    Validate a YAML configuration file without generating the InferenceService.
+    
+    ### 📋 Validation Checks:
+    - **Required fields**: name, storage_uri, runtime_type
+    - **Storage URI format**: Must start with s3://, gs://, or pvc://
+    - **Resource specifications**: CPU, memory, GPU limits/requests
+    - **Runtime-specific parameters**: Each runtime validates its own config
+    
+    ### 🎯 Use Cases:
+    - Pre-validate configs before deployment
+    - CI/CD pipeline validation
+    - Configuration debugging
+    - Environment detection testing
+    
+    ### 📤 Response:
+    Returns validation status, errors (if any), detected environment, and config summary.
+    """,
+    response_model=ValidationResponse,
+    responses={
+        200: {"description": "Configuration validation completed"},
+        400: {"description": "Failed to parse configuration file"}
+    }
+)
+async def validate_config(
+    config_file: UploadFile = File(
+        ..., 
+        description="YAML configuration file to validate",
+        media_type="application/x-yaml"
+    )
+):
+    """Validate configuration file without generating service"""
+    try:
+        # Read and parse configuration
+        file_content = await config_file.read()
+        config = ConfigManager.parse_config_file(file_content)
+        
+        # Validate basic configuration
+        is_valid, errors = ConfigManager.validate_config(config)
+        
+        # Validate runtime-specific configuration
+        service_manager = InferenceServiceManager()
+        runtime_valid, runtime_errors = service_manager.validate_runtime_config(config)
+        
+        # Combine all errors
+        all_errors = errors + runtime_errors
+        all_valid = is_valid and runtime_valid
+        
+        # Determine environment
+        environment = ConfigManager.determine_environment_from_path(
+            config_file.filename
+        )
+        
+        return ValidationResponse(
+            valid=all_valid,
+            errors=all_errors,
+            environment=environment,
+            config_summary=ConfigSummary(
+                name=config.get('name'),
+                runtime_type=config.get('runtime_type'),
+                storage_uri=config.get('storage_uri')
+            )
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to validate config: {str(e)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Configuration validation failed: {str(e)}"
+        )
+
+@router.get(
+    "/supported-runtimes",
+    tags=["Runtime Info"], 
+    summary="Get Supported Runtimes",
+    description="""
+    ## 🔧 Get All Supported Runtimes
+    
+    Retrieve information about all supported runtime types and their capabilities.
+    
+    ### 📊 Runtime Information Includes:
+    - **Name & Description**: Runtime identifier and description
+    - **Supported Formats**: Model formats that can be served
+    - **GPU Support**: Whether runtime supports GPU acceleration  
+    - **Custom Parameters**: Runtime-specific configuration options
+    
+    ### 🎯 Current Runtimes:
+    - **Triton**: NVIDIA Triton Inference Server (GPU support)
+    - **SKLearn**: Scikit-learn models (CPU only)
+    - **vLLM**: Large Language Models (GPU support)
+    
+    Use this endpoint to:
+    - Discover available runtimes
+    - Check runtime capabilities before configuration
+    - Get list of supported model formats
+    """,
+    response_model=SupportedRuntimesResponse,
+    responses={
+        200: {"description": "List of supported runtimes with capabilities"}
+    }
+)
+async def get_supported_runtimes():
+    """Get list of supported runtime types with their capabilities"""
+    runtime_info = RuntimeFactory.get_supported_runtimes()
+    return SupportedRuntimesResponse(supported_runtimes=runtime_info)
+
+@router.get(
+    "/runtime/{runtime_type}/info",
+    tags=["Runtime Info"],
+    summary="Get Runtime Details", 
+    description="""
+    ## 🔍 Get Specific Runtime Information
+    
+    Get detailed information about a specific runtime type.
+    
+    ### 📋 Available Runtimes:
+    - `triton` - NVIDIA Triton Inference Server
+    - `sklearn` - Scikit-learn model serving
+    - `vllm` - Large Language Model serving
+    
+    ### 📊 Response Includes:
+    - Runtime capabilities and supported formats
+    - GPU support information
+    - List of runtime-specific configuration parameters
+    - Usage recommendations
+    """,
+    response_model=RuntimeInfo,
+    responses={
+        200: {"description": "Runtime information retrieved successfully"},
+        404: {"description": "Runtime type not found"}
+    }
+)
+async def get_runtime_info(
+    runtime_type: str = Field(
+        ..., 
+        description="Runtime type to get information about",
+        regex="^(triton|sklearn|vllm)$"
+    )
+):
+    """Get detailed information about a specific runtime"""
+    try:
+        runtime_info = RuntimeFactory.get_supported_runtimes()
+        if runtime_type.lower() not in runtime_info:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Runtime type '{runtime_type}' not supported. Supported runtimes: {list(runtime_info.keys())}"
+            )
+        
+        return RuntimeInfo(**runtime_info[runtime_type.lower()])
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get runtime info: {str(e)}"
+        )
+
+# Example CURL Commands:
+
+"""
+# 1. Generate InferenceService from config file
+curl -X POST "http://localhost:8000/api/v1/generate" \
+  -H "Content-Type: multipart/form-data" \
+  -F "config_file=@/path/to/your/config.yaml" \
+  -F "environment=aifarm-rnd-dev" \
+  -o generated_inference_service.yaml
+
+# 2. Validate configuration file
+curl -X POST "http://localhost:8000/api/v1/validate" \
+  -H "Content-Type: multipart/form-data" \
+  -F "config_file=@/path/to/your/config.yaml" \
+  | jq '.'
+
+# 3. Get all supported runtimes
+curl -X GET "http://localhost:8000/api/v1/supported-runtimes" \
+  -H "Content-Type: application/json" \
+  | jq '.'
+
+# 4. Get specific runtime information
+curl -X GET "http://localhost:8000/api/v1/runtime/triton/info" \
+  -H "Content-Type: application/json" \
+  | jq '.'
+
+# 5. Health check
+curl -X GET "http://localhost:8000/health" \
+  -H "Content-Type: application/json" \
+  | jq '.'
+
+# 6. Root endpoint
+curl -X GET "http://localhost:8000/" \
+  -H "Content-Type: application/json" \
+  | jq '.'
+"""
+
+# 📋 Complete CURL Examples with Real Usage:
+
+# 1. GENERATE INFERENCE SERVICE
+# Basic generation with auto-detected environment
+curl -X POST "http://localhost:8000/api/v1/generate" \
+  -H "Content-Type: multipart/form-data" \
+  -F "config_file=@configs/aifarm-rnd-dev/triton-config.yaml" \
+  -o output/aifarm-rnd-dev/inference_service.yaml
+
+# Generation with explicit environment override
+curl -X POST "http://localhost:8000/api/v1/generate" \
+  -H "Content-Type: multipart/form-data" \
+  -F "config_file=@configs/triton-config.yaml" \
+  -F "environment=aifarm-rnd-qat" \
+  -o output/aifarm-rnd-qat/inference_service.yaml
+
+# Check the generated file and environment
+curl -X POST "http://localhost:8000/api/v1/generate" \
+  -H "Content-Type: multipart/form-data" \
+  -F "config_file=@configs/vllm-config.yaml" \
+  -D headers.txt \
+  -o generated_service.yaml && \
+  cat headers.txt | grep "X-Environment"
+
+# 2. VALIDATE CONFIGURATION
+# Validate Triton config
+curl -X POST "http://localhost:8000/api/v1/validate" \
+  -H "Content-Type: multipart/form-data" \
+  -F "config_file=@configs/triton-config.yaml" \
+  | jq '.valid, .errors[], .environment'
+
+# Validate with pretty JSON output
+curl -X POST "http://localhost:8000/api/v1/validate" \
+  -H "Content-Type: multipart/form-data" \
+  -F "config_file=@configs/sklearn-config.yaml" \
+  | jq '{
+      valid: .valid,
+      environment: .environment,
+      runtime: .config_summary.runtime_type,
+      errors: .errors
+    }'
+
+# 3. GET SUPPORTED RUNTIMES
+# List all supported runtimes
+curl -X GET "http://localhost:8000/api/v1/supported-runtimes" \
+  -H "Accept: application/json" \
+  | jq '.supported_runtimes | keys'
+
+# Get runtime capabilities
+curl -X GET "http://localhost:8000/api/v1/supported-runtimes" \
+  | jq '.supported_runtimes.triton | {name, description, gpu_support, custom_parameters}'
+
+# 4. GET SPECIFIC RUNTIME INFO
+# Get Triton runtime details
+curl -X GET "http://localhost:8000/api/v1/runtime/triton/info" \
+  | jq '{name, description, supported_formats, custom_parameters}'
+
+# Get vLLM runtime details
+curl -X GET "http://localhost:8000/api/v1/runtime/vllm/info" \
+  | jq '{name, gpu_support, custom_parameters}'
+
+# Get SKLearn runtime details  
+curl -X GET "http://localhost:8000/api/v1/runtime/sklearn/info" \
+  | jq '.'
+
+# Handle non-existent runtime
+curl -X GET "http://localhost:8000/api/v1/runtime/invalid/info" \
+  | jq '.detail'
+
+# 5. HEALTH AND STATUS CHECKS
+# Basic health check
+curl -X GET "http://localhost:8000/health" | jq '.'
+
+# Root endpoint
+curl -X GET "http://localhost:8000/" | jq '.message'
+
+# 6. BATCH OPERATIONS EXAMPLES
+# Process multiple configs in sequence
+for config in configs/aifarm-rnd-dev/*.yaml; do
+  echo "Processing $config..."
+  curl -X POST "http://localhost:8000/api/v1/generate" \
+    -H "Content-Type: multipart/form-data" \
+    -F "config_file=@$config" \
+    -o "output/$(basename $config .yaml)_service.yaml"
+done
+
+# Validate multiple configs
+for config in configs/*.yaml; do
+  echo "Validating $config:"
+  curl -s -X POST "http://localhost:8000/api/v1/validate" \
+    -H "Content-Type: multipart/form-data" \
+    -F "config_file=@$config" \
+    | jq -r 'if .valid then "✅ Valid" else "❌ Invalid: " + (.errors | join(", ")) end'
+  echo "---"
+done
+
+# 📁 Example Config Files for Testing:
+
+# configs/aifarm-rnd-dev/triton-config.yaml
+name: triton-inference-service
+storage_uri: s3://aifarm-models-dev/triton-models/
+runtime_type: triton
+s3_secret: model-s3-secret-dev
+min_replicas: 1
+max_replicas: 3
+cpu_request: "2"
+memory_request: "4Gi"
+cpu_limit: "4"
+memory_limit: "8Gi"
+gpu_request: "1"
+gpu_limit: "1"
+custom_image: "nvcr.io/nvidia/tritonserver:23.10-py3"
+triton_version: "23.10"
+model_repository_path: "/models"
+triton_server_args: "--log-verbose=1 --strict-model-config=false --model-control-mode=explicit"
+model_control_mode: "explicit"
+log_verbose: 1
+protocol_version: "v2"
+route: "default"
+
+# configs/aifarm-rnd-qat/vllm-config.yaml
+name: vllm-llm-service
+storage_uri: s3://aifarm-models-qat/llm-models/llama-7b/
+runtime_type: vllm
+s3_secret: model-s3-secret-qat
+min_replicas: 1
+max_replicas: 2
+cpu_request: "4"
+memory_request: "16Gi"
+cpu_limit: "8"
+memory_limit: "32Gi"
+gpu_request: "2"
+gpu_limit: "2"
+custom_image: "vllm/vllm-openai:v0.2.7"
+vllm_version: "0.2.7"
+tensor_parallel_size: 2
+max_model_len: 4096
+trust_remote_code: true
+dtype: "float16"
+quantization: "awq"
+served_model_name: "llama-7b-chat"
+route: "default"
+
+# configs/sklearn-config.yaml
+name: fraud-detection-classifier
+storage_uri: s3://aifarm-models-prod/sklearn-models/fraud-detector-v2/
+runtime_type: sklearn
+s3_secret: model-s3-secret
+min_replicas: 3
+max_replicas: 15
+cpu_request: "500m"
+memory_request: "1Gi"
+cpu_limit: "2"
+memory_limit: "4Gi"
+sklearn_version: "1.3.0"
+model_name: "fraud_classifier"
+protocol_version: "v1"
+route: "default"
+
+# 🔧 Additional Development Tools:
+
+# requirements.txt
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+kserve==0.11.2
+kubernetes==28.1.0
+pyyaml==6.0.1
+python-multipart==0.0.6
+pydantic==2.5.0
+jinja2==3.1.2
+aiofiles==23.2.1
+
+# Dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY src/ ./src/
+
+EXPOSE 8000
+
+CMD ["uvicorn", "src.app:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+# docker-compose.yml
+version: '3.8'
+services:
+  kserve-api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./configs:/app/configs
+      - ./output:/app/output
+    environment:
+      - LOG_LEVEL=info
+    
+# Makefile
+.PHONY: install run test docker-build docker-run clean
+
+install:
+	pip install -r requirements.txt
+
+run:
+	uvicorn src.app:app --host 0.0.0.0 --port 8000 --reload
+
+test:
+	python -m pytest tests/ -v
+
+docker-build:
+	docker build -t kserve-api:latest .
+
+docker-run:
+	docker-compose up -d
+
+clean:
+	find . -type d -name "__pycache__" -exec rm -rf {} +
+	find . -type f -name "*.pyc" -delete
+
+# Test script (test_api.sh)
+#!/bin/bash
+set -e
+
+API_BASE="http://localhost:8000"
+
+echo "🚀 Testing KServe API..."
+
+# Test health endpoint
+echo "Testing health endpoint..."
+curl -s "$API_BASE/health" | jq '.'
+
+# Test supported runtimes
+echo -e "\nTesting supported runtimes..."
+curl -s "$API_BASE/api/v1/supported-runtimes" | jq '.supported_runtimes | keys'
+
+# Test runtime info
+echo -e "\nTesting Triton runtime info..."
+curl -s "$API_BASE/api/v1/runtime/triton/info" | jq '.name, .gpu_support'
+
+# Test config validation (assuming test config exists)
+if [ -f "test-config.yaml" ]; then
+    echo -e "\nTesting config validation..."
+    curl -s -X POST "$API_BASE/api/v1/validate" \
+        -H "Content-Type: multipart/form-data" \
+        -F "config_file=@test-config.yaml" | jq '.valid, .environment'
+fi
+
+echo -e "\n✅ API tests completed!"
+
+# 🎯 Expected API Responses:
+
+# Response from /api/v1/supported-runtimes:
+{
+  "supported_runtimes": {
+    "triton": {
+      "name": "triton",
+      "description": "NVIDIA Triton Inference Server",
+      "supported_formats": ["tensorrt", "onnx", "pytorch", "tensorflow", "python", "dali"],
+      "gpu_support": true,
+      "custom_parameters": ["triton_version", "custom_image", "model_repository_path", ...]
+    },
+    "sklearn": {
+      "name": "sklearn", 
+      "description": "Scikit-learn models",
+      "supported_formats": ["pickle", "joblib"],
+      "gpu_support": false,
+      "custom_parameters": ["sklearn_version", "custom_image", "model_name", ...]
+    },
+    "vllm": {
+      "name": "vllm",
+      "description": "vLLM for large language models", 
+      "supported_formats": ["huggingface", "pytorch"],
+      "gpu_support": true,
+      "custom_parameters": ["vllm_version", "tensor_parallel_size", "max_model_len", ...]
+    }
+  }
+}
+
+# Response from /api/v1/validate (valid config):
+{
+  "valid": true,
+  "errors": [],
+  "environment": "aifarm-rnd-dev",
+  "config_summary": {
+    "name": "triton-inference-service",
+    "runtime_type": "triton", 
+    "storage_uri": "s3://aifarm-models-dev/triton-models/"
+  }
+}
+
+# Response from /api/v1/validate (invalid config):
+{
+  "valid": false,
+  "errors": [
+    "Missing required field: storage_uri",
+    "triton_version must be in format 'XX.YY'",
+    "log_verbose must be between 0 and 4"
+  ],
+  "environment": "aifarm-rnd-dev",
+  "config_summary": {
+    "name": "triton-inference-service",
+    "runtime_type": "triton",
+    "storage_uri": null
+  }
+}
+
+# Generated InferenceService YAML structure:
+inference_service:
+  apiVersion: serving.kserve.io/v1beta1
+  kind: InferenceService
+  metadata:
+    name: triton-inference-service
+    namespace: aifarm-rnd-dev
+    labels:
+      app: triton-inference-service
+      runtime: triton
+      environment: aifarm-rnd-dev
+  spec:
+    predictor:
+      minReplicas: 1
+      maxReplicas: 3
+      triton:
+        storageUri: s3://aifarm-models-dev/triton-models/
+        runtimeVersion: "23.10"
+        image: nvcr.io/nvidia/tritonserver:23.10-py3
+        resources:
+          requests:
+            cpu: "2"
+            memory: "4Gi"
+            nvidia.com/gpu: "1"
+          limits:
+            cpu: "4"
+            memory: "8Gi"
+            nvidia.com/gpu: "1"
+        env:
+          - name: TRITON_MODEL_REPOSITORY
+            value: "/models"
+          - name: TRITON_SERVER_ARGS  
+            value: "--log-verbose=1 --strict-model-config=false --model-control-mode=explicit"
+          - name: TRITON_LOG_VERBOSE
+            value: "1"
+          - name: AWS_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: model-s3-secret-dev
+                key: access_key_id
+          - name: AWS_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: model-s3-secret-dev
+                key: secret_access_key
+route:
+  apiVersion: route.openshift.io/v1
+  kind: Route
+  metadata:
+    name: triton-inference-service-route
+    namespace: aifarm-rnd-dev
+    labels:
+      app: triton-inference-service
+      environment: aifarm-rnd-dev
+  spec:
+    to:
+      kind: Service
+      name: triton-inference-service-predictor-default
+    port:
+      targetPort: http
+    tls:
+      termination: edge
+environment: aifarm-rnd-dev
