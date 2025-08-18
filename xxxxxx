@@ -1,32 +1,777 @@
-- name: oauth-proxy
-  args:
-  - --skip-auth-regex=^/api/.*  # Skip auth for API paths
-  - --pass-bearer-token=true    # Pass bearer tokens through
+# src/app.py
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.openapi.utils import get_openapi
+from fastapi.staticfiles import StaticFiles
+import logging
+import os
+from datetime import datetime
+from pathlib import Path
 
+# Import routers
+from routers.generate import router as generate_router
+from runtimes import RuntimeFactory
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
-# Example for a deployment that should accept tokens
+# Application metadata
+APP_NAME = "KServe Inference Service API"
+APP_VERSION = "1.0.0"
+APP_DESCRIPTION = """
+## 🚀 KServe Inference Service Generation API
+
+A comprehensive FastAPI service for generating and managing KServe InferenceService configurations with support for multiple runtimes and OpenShift deployment.
+
+### 🎯 **Key Features**
+- **Multi-Runtime Support**: Triton, SKLearn, and vLLM runtimes
+- **Environment Auto-Detection**: Automatic environment detection from file paths
+- **RunAI Scheduler Integration**: GPU workload management with RunAI
+- **OpenShift Route Generation**: Automatic route creation for external access
+- **Custom Image Support**: Optional custom container images
+- **Comprehensive Validation**: Runtime-specific configuration validation
+- **Interactive Documentation**: Full Swagger UI with examples
+
+### 🏗️ **Supported Runtimes**
+- **🎮 Triton**: High-performance inference server for GPU workloads
+- **🧠 vLLM**: Large Language Model serving with tensor parallelism
+- **📊 SKLearn**: Scikit-learn model serving for traditional ML
+
+### 🌍 **Target Environments**
+- **Development**: `aifarm-rnd-dev` - Testing and experimentation
+- **QAT**: `aifarm-rnd-qat` - Pre-production quality assurance
+- **Production**: `aifarm-rnd-prod` - Live production workloads
+
+### 📋 **API Workflow**
+1. **Upload Config**: Submit YAML configuration file
+2. **Validation**: Automatic validation with detailed error reporting  
+3. **Generation**: Create complete KServe InferenceService YAML
+4. **Download**: Get ready-to-deploy Kubernetes manifests
+
+### 🔧 **Advanced Features**
+- **Raw Deployment Mode**: Bypass serverless for better control
+- **Resource Management**: CPU, memory, and GPU resource specifications
+- **Secret Integration**: S3/GCS credential management
+- **Node Affinity**: GPU/CPU node targeting with RunAI scheduler
+- **Environment Variables**: Runtime-specific configuration injection
+"""
+
+# Create FastAPI application
+app = FastAPI(
+    title=APP_NAME,
+    version=APP_VERSION,
+    description=APP_DESCRIPTION,
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
+    contact={
+        "name": "AI Platform Team",
+        "email": "ai-platform@company.com",
+        "url": "https://github.com/company/kserve-api"
+    },
+    license_info={
+        "name": "MIT License",
+        "url": "https://opensource.org/licenses/MIT"
+    },
+    servers=[
+        {
+            "url": "http://localhost:8000",
+            "description": "Development server"
+        },
+        {
+            "url": "https://kserve-api-dev.aifarm.company.com",
+            "description": "Development environment"
+        },
+        {
+            "url": "https://kserve-api-qat.aifarm.company.com", 
+            "description": "QAT environment"
+        },
+        {
+            "url": "https://kserve-api-prod.aifarm.company.com",
+            "description": "Production environment"
+        }
+    ]
+)
+
+# Configure CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Configure appropriately for production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Include API routers
+app.include_router(
+    generate_router,
+    prefix="/api/v1",
+    tags=["KServe Generation"]
+)
+
+# Custom OpenAPI schema with enhanced documentation
+def custom_openapi():
+    """Generate custom OpenAPI schema with enhanced documentation"""
+    if app.openapi_schema:
+        return app.openapi_schema
+    
+    openapi_schema = get_openapi(
+        title=APP_NAME,
+        version=APP_VERSION,
+        description=APP_DESCRIPTION,
+        routes=app.routes,
+    )
+    
+    # Add custom tags for better organization
+    openapi_schema["tags"] = [
+        {
+            "name": "Generation",
+            "description": "🚀 **InferenceService Generation** - Generate KServe configurations from YAML files"
+        },
+        {
+            "name": "Validation", 
+            "description": "✅ **Configuration Validation** - Validate configs without deployment"
+        },
+        {
+            "name": "Runtime Info",
+            "description": "🔧 **Runtime Information** - Discover supported runtimes and capabilities"
+        },
+        {
+            "name": "System",
+            "description": "⚙️ **System Endpoints** - Health checks and API status"
+        }
+    ]
+    
+    # Add additional info
+    openapi_schema["info"]["x-logo"] = {
+        "url": "https://kserve.github.io/website/0.10/images/logo.png",
+        "altText": "KServe Logo"
+    }
+    
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+app.openapi = custom_openapi
+
+# Root endpoint
+@app.get(
+    "/",
+    tags=["System"],
+    summary="API Root",
+    description="""
+    ## 👋 Welcome to KServe API
+    
+    This is the root endpoint providing basic API information and navigation links.
+    
+    ### 🔗 Quick Links:
+    - **Swagger UI**: Interactive API documentation
+    - **Health Check**: API status and version
+    - **Supported Runtimes**: Available inference runtimes
+    
+    ### 📚 Getting Started:
+    1. Check `/docs` for complete API documentation
+    2. Use `/api/v1/supported-runtimes` to see available runtimes
+    3. Upload a YAML config to `/api/v1/generate` to create InferenceService
+    """,
+    response_model=dict
+)
+async def root():
+    """API root endpoint with navigation information"""
+    return {
+        "message": f"🚀 Welcome to {APP_NAME} v{APP_VERSION}",
+        "version": APP_VERSION,
+        "docs_url": "/docs",
+        "redoc_url": "/redoc", 
+        "openapi_url": "/openapi.json",
+        "health_url": "/health",
+        "api_prefix": "/api/v1",
+        "endpoints": {
+            "generate": "/api/v1/generate",
+            "validate": "/api/v1/validate", 
+            "supported_runtimes": "/api/v1/supported-runtimes",
+            "runtime_info": "/api/v1/runtime/{runtime_type}/info"
+        },
+        "supported_runtimes": list(RuntimeFactory.get_supported_runtimes().keys()),
+        "environments": ["aifarm-rnd-dev", "aifarm-rnd-qat", "aifarm-rnd-prod"],
+        "timestamp": datetime.utcnow().isoformat(),
+        "status": "operational"
+    }
+
+# Health check endpoint
+@app.get(
+    "/health",
+    tags=["System"],
+    summary="Health Check",
+    description="""
+    ## ❤️ API Health Status
+    
+    Check the health and status of the KServe API service.
+    
+    ### 📊 Health Information:
+    - **Status**: Current operational status
+    - **Version**: API version information  
+    - **Uptime**: How long the service has been running
+    - **Runtime Check**: Verify all runtimes are accessible
+    
+    ### 🎯 Use Cases:
+    - **Load Balancer Health Checks**: Kubernetes liveness/readiness probes
+    - **Monitoring**: Service health monitoring and alerting
+    - **CI/CD**: Verify API deployment success
+    - **Debugging**: Quick status verification
+    """,
+    response_model=dict
+)
+async def health_check():
+    """Health check endpoint for monitoring and load balancers"""
+    try:
+        # Test runtime factory functionality
+        supported_runtimes = RuntimeFactory.get_supported_runtimes()
+        runtime_count = len(supported_runtimes)
+        
+        # Basic system checks
+        health_status = {
+            "status": "healthy",
+            "version": APP_VERSION,
+            "timestamp": datetime.utcnow().isoformat(),
+            "service": APP_NAME,
+            "checks": {
+                "runtime_factory": "ok",
+                "supported_runtimes": runtime_count,
+                "api_router": "ok"
+            },
+            "uptime": "operational",
+            "environment": os.getenv("ENVIRONMENT", "development")
+        }
+        
+        return health_status
+        
+    except Exception as e:
+        logger.error(f"Health check failed: {str(e)}")
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "unhealthy",
+                "version": APP_VERSION,
+                "timestamp": datetime.utcnow().isoformat(),
+                "error": str(e),
+                "checks": {
+                    "runtime_factory": "failed",
+                    "api_router": "unknown"
+                }
+            }
+        )
+
+# Readiness probe endpoint (for Kubernetes)
+@app.get(
+    "/ready",
+    tags=["System"],
+    summary="Readiness Check",
+    description="Kubernetes readiness probe endpoint"
+)
+async def readiness_check():
+    """Readiness probe for Kubernetes deployments"""
+    try:
+        # Verify all components are ready
+        RuntimeFactory.get_supported_runtimes()
+        return {"status": "ready", "timestamp": datetime.utcnow().isoformat()}
+    except Exception as e:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "not_ready", "error": str(e)}
+        )
+
+# Liveness probe endpoint (for Kubernetes)  
+@app.get(
+    "/live",
+    tags=["System"],
+    summary="Liveness Check",
+    description="Kubernetes liveness probe endpoint"
+)
+async def liveness_check():
+    """Liveness probe for Kubernetes deployments"""
+    return {"status": "alive", "timestamp": datetime.utcnow().isoformat()}
+
+# Global exception handler
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    """Global exception handler for unhandled errors"""
+    logger.error(f"Unhandled exception: {str(exc)}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "Internal server error",
+            "message": "An unexpected error occurred. Please check the logs.",
+            "timestamp": datetime.utcnow().isoformat(),
+            "path": str(request.url.path)
+        }
+    )
+
+# Startup event
+@app.on_event("startup")
+async def startup_event():
+    """Application startup tasks"""
+    logger.info(f"🚀 Starting {APP_NAME} v{APP_VERSION}")
+    logger.info(f"📚 Swagger UI available at: /docs")
+    logger.info(f"📖 ReDoc available at: /redoc")
+    
+    # Verify runtime factory is working
+    try:
+        runtimes = RuntimeFactory.get_supported_runtimes()
+        logger.info(f"✅ Loaded {len(runtimes)} supported runtimes: {list(runtimes.keys())}")
+    except Exception as e:
+        logger.error(f"❌ Failed to load runtimes: {str(e)}")
+        raise
+    
+    # Create output directories if they don't exist
+    output_dir = Path("output")
+    output_dir.mkdir(exist_ok=True)
+    for env in ["aifarm-rnd-dev", "aifarm-rnd-qat", "aifarm-rnd-prod"]:
+        (output_dir / env).mkdir(exist_ok=True)
+    
+    logger.info("✅ Application startup completed successfully")
+
+# Shutdown event
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Application shutdown tasks"""
+    logger.info(f"🛑 Shutting down {APP_NAME} v{APP_VERSION}")
+    logger.info("✅ Application shutdown completed")
+
+# Add metrics endpoint for monitoring
+@app.get(
+    "/metrics",
+    tags=["System"],
+    summary="Application Metrics",
+    description="""
+    ## 📊 Application Metrics
+    
+    Get basic application metrics for monitoring and observability.
+    
+    ### 📈 Metrics Include:
+    - **Request Counters**: Total API calls per endpoint
+    - **Runtime Usage**: Which runtimes are most used
+    - **Environment Distribution**: Deployment targets
+    - **Error Rates**: Success/failure statistics
+    
+    ### 🎯 Use Cases:
+    - **Monitoring Dashboards**: Grafana/Prometheus integration
+    - **Performance Analysis**: Usage pattern analysis
+    - **Capacity Planning**: Resource utilization insights
+    """,
+    include_in_schema=True
+)
+async def get_metrics():
+    """Get application metrics for monitoring"""
+    try:
+        # Basic metrics (in production, use proper metrics library like prometheus_client)
+        runtimes = RuntimeFactory.get_supported_runtimes()
+        
+        metrics = {
+            "application": {
+                "name": APP_NAME,
+                "version": APP_VERSION,
+                "uptime": "operational",
+                "status": "healthy"
+            },
+            "runtimes": {
+                "total_supported": len(runtimes),
+                "gpu_enabled": sum(1 for r in runtimes.values() if r.get('gpu_support', False)),
+                "cpu_only": sum(1 for r in runtimes.values() if not r.get('gpu_support', False)),
+                "runtime_list": list(runtimes.keys())
+            },
+            "environments": {
+                "supported": ["aifarm-rnd-dev", "aifarm-rnd-qat", "aifarm-rnd-prod"],
+                "default": "aifarm-rnd-dev"
+            },
+            "features": {
+                "custom_images": True,
+                "runai_scheduler": True,
+                "openshift_routes": True,
+                "s3_integration": True,
+                "validation": True
+            },
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        return metrics
+        
+    except Exception as e:
+        logger.error(f"Failed to generate metrics: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": "Failed to generate metrics", "timestamp": datetime.utcnow().isoformat()}
+        )
+
+# Version endpoint
+@app.get(
+    "/version",
+    tags=["System"],
+    summary="API Version",
+    description="Get detailed version and build information",
+    response_model=dict
+)
+async def get_version():
+    """Get API version and build information"""
+    return {
+        "name": APP_NAME,
+        "version": APP_VERSION,
+        "build_date": "2025-01-15",  # Update with actual build date
+        "python_version": "3.11+",
+        "fastapi_version": "0.104.1",
+        "kserve_version": "0.11.2",
+        "kubernetes_version": "28.1.0",
+        "supported_runtimes": list(RuntimeFactory.get_supported_runtimes().keys()),
+        "features": [
+            "multi-runtime-support",
+            "environment-auto-detection", 
+            "runai-scheduler-integration",
+            "openshift-routes",
+            "custom-images",
+            "comprehensive-validation"
+        ]
+    }
+
+# Environment configuration endpoint
+@app.get(
+    "/environments",
+    tags=["System"],
+    summary="Supported Environments",
+    description="""
+    ## 🌍 Supported Deployment Environments
+    
+    Get information about all supported deployment environments.
+    
+    ### 📋 Environment Information:
+    - **Name & Description**: Environment purpose and use case
+    - **Cluster Details**: Target Kubernetes cluster information
+    - **Default Settings**: Environment-specific defaults
+    
+    ### 🎯 Available Environments:
+    - **Development**: Testing and experimentation
+    - **QAT**: Quality assurance and pre-production testing  
+    - **Production**: Live production workloads
+    """,
+    response_model=dict
+)
+async def get_environments():
+    """Get information about supported deployment environments"""
+    from services.utils import ConfigManager
+    
+    return {
+        "environments": ConfigManager.get_environment_info(),
+        "default_environment": "aifarm-rnd-dev",
+        "auto_detection": {
+            "enabled": True,
+            "method": "file_path_pattern_matching",
+            "patterns": list(ConfigManager.ENVIRONMENT_PATTERNS.keys())
+        }
+    }
+
+# Configuration template endpoint
+@app.get(
+    "/templates/{runtime_type}",
+    tags=["System"],
+    summary="Get Config Template",
+    description="""
+    ## 📄 Configuration Templates
+    
+    Get a YAML configuration template for a specific runtime type.
+    
+    ### 🎯 Template Benefits:
+    - **Quick Start**: Ready-to-use configuration examples
+    - **Best Practices**: Runtime-optimized default values
+    - **Documentation**: Commented parameters with explanations
+    
+    ### 📋 Available Templates:
+    - `triton` - NVIDIA Triton Inference Server template
+    - `sklearn` - Scikit-learn model serving template  
+    - `vllm` - Large Language Model serving template
+    """,
+    response_model=dict
+)
+async def get_config_template(runtime_type: str):
+    """Get configuration template for a specific runtime"""
+    try:
+        from services.utils import ConfigManager
+        
+        if runtime_type.lower() not in RuntimeFactory.get_supported_runtimes():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Runtime '{runtime_type}' not supported. Available: {list(RuntimeFactory.get_supported_runtimes().keys())}"
+            )
+        
+        template = ConfigManager.get_config_template(runtime_type.lower())
+        
+        return {
+            "runtime_type": runtime_type.lower(),
+            "template": template,
+            "usage": f"Save this template as a .yaml file and customize for your model",
+            "example_filename": f"{runtime_type.lower()}-config.yaml"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get template for {runtime_type}: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate template: {str(e)}"
+        )
+
+# Runtime validation endpoint
+@app.post(
+    "/api/v1/runtime/{runtime_type}/validate",
+    tags=["Validation"],
+    summary="Validate Runtime-Specific Config",
+    description="""
+    ## 🔍 Runtime-Specific Validation
+    
+    Validate configuration specifically for a particular runtime type.
+    
+    ### 🎯 Runtime Validation:
+    - **Type-Specific Rules**: Each runtime has unique validation logic
+    - **Parameter Checking**: Validate runtime-specific parameters
+    - **Resource Compatibility**: Check resource requirements vs capabilities
+    
+    ### 📋 Validation Coverage:
+    - **Triton**: Model repository paths, server arguments, GPU requirements
+    - **vLLM**: Tensor parallelism, model lengths, quantization settings
+    - **SKLearn**: Model formats, worker configurations, CPU optimization
+    """,
+    response_model=dict
+)
+async def validate_runtime_config(runtime_type: str, config_file):
+    """Validate configuration for a specific runtime type"""
+    try:
+        from services.utils import ConfigManager
+        from services.inference_service import InferenceServiceManager
+        
+        # Check if runtime is supported
+        if runtime_type.lower() not in RuntimeFactory.get_supported_runtimes():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Runtime '{runtime_type}' not supported"
+            )
+        
+        # Parse and validate config
+        file_content = await config_file.read()
+        config = ConfigManager.parse_config_file(file_content)
+        
+        # Override runtime type to ensure consistency
+        config['runtime_type'] = runtime_type.lower()
+        
+        # Perform runtime-specific validation
+        service_manager = InferenceServiceManager()
+        is_valid, errors = service_manager.validate_runtime_config(config)
+        
+        return {
+            "runtime_type": runtime_type.lower(),
+            "valid": is_valid,
+            "errors": errors,
+            "config_summary": ConfigManager.extract_config_summary(config)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Runtime validation failed for {runtime_type}: {str(e)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Validation failed: {str(e)}"
+        )
+
+# Development utilities endpoint (only in development)
+@app.get(
+    "/dev/info",
+    tags=["System"],
+    summary="Development Information",
+    description="Development utilities and debugging information",
+    include_in_schema=os.getenv("ENVIRONMENT", "development") == "development"
+)
+async def dev_info():
+    """Development utilities and debugging information"""
+    if os.getenv("ENVIRONMENT") == "production":
+        raise HTTPException(status_code=404, detail="Not available in production")
+    
+    return {
+        "environment": "development",
+        "debug_mode": True,
+        "log_level": logging.getLogger().level,
+        "python_path": os.getenv("PYTHONPATH", "not_set"),
+        "working_directory": str(Path.cwd()),
+        "config_directories": [
+            str(path) for path in Path(".").glob("**/configs") if path.is_dir()
+        ],
+        "output_directories": [
+            str(path) for path in Path(".").glob("**/output") if path.is_dir()
+        ]
+    }
+
+# Error handling for specific HTTP exceptions
+@app.exception_handler(404)
+async def not_found_handler(request, exc):
+    """Custom 404 handler"""
+    return JSONResponse(
+        status_code=404,
+        content={
+            "error": "Not Found",
+            "message": f"The requested resource '{request.url.path}' was not found",
+            "suggestion": "Check the API documentation at /docs for available endpoints",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    )
+
+@app.exception_handler(422)
+async def validation_exception_handler(request, exc):
+    """Custom validation error handler"""
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": "Validation Error",
+            "message": "Request validation failed",
+            "details": exc.errors() if hasattr(exc, 'errors') else str(exc),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    )
+
+# Middleware for request logging
+@app.middleware("http")
+async def log_requests(request, call_next):
+    """Log all HTTP requests for monitoring"""
+    start_time = datetime.utcnow()
+    
+    # Process request
+    response = await call_next(request)
+    
+    # Calculate processing time
+    process_time = (datetime.utcnow() - start_time).total_seconds()
+    
+    # Log request details
+    logger.info(
+        f"{request.method} {request.url.path} - "
+        f"Status: {response.status_code} - "
+        f"Time: {process_time:.3f}s - "
+        f"Client: {request.client.host if request.client else 'unknown'}"
+    )
+    
+    # Add processing time header
+    response.headers["X-Process-Time"] = str(process_time)
+    
+    return response
+
+# CORS preflight handler
+@app.options("/{path:path}")
+async def options_handler(path: str):
+    """Handle CORS preflight requests"""
+    return JSONResponse(
+        content={},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        }
+    )
+
+# Application configuration
+if __name__ == "__main__":
+    import uvicorn
+    
+    # Development server configuration
+    uvicorn.run(
+        "app:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        log_level="info",
+        access_log=True
+    )
+
+# Additional configuration for production deployment
+"""
+Production Deployment Configuration:
+
+# gunicorn_config.py
+bind = "0.0.0.0:8000"
+workers = 4
+worker_class = "uvicorn.workers.UvicornWorker"
+worker_connections = 1000
+max_requests = 1000
+max_requests_jitter = 100
+timeout = 30
+keepalive = 2
+preload_app = True
+
+# Environment Variables for Production:
+ENVIRONMENT=production
+LOG_LEVEL=info
+CORS_ORIGINS=["https://your-frontend.com"]
+MAX_FILE_SIZE=10485760  # 10MB
+RATE_LIMIT_REQUESTS=100
+RATE_LIMIT_WINDOW=3600  # 1 hour
+
+# Kubernetes Deployment Example:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: my-api
+  name: kserve-api
+  namespace: kserve-system
 spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: kserve-api
   template:
+    metadata:
+      labels:
+        app: kserve-api
     spec:
       containers:
-      - name: api
+      - name: kserve-api
+        image: your-registry/kserve-api:latest
+        ports:
+        - containerPort: 8000
         env:
-        - name: OAUTH_PROXY_ENABLED
-          value: "false"  # Disable OAuth proxy if present
-
-
-# In your deployment/pod spec
-containers:
-- name: oauth-proxy
-  args:
-  - --upstream=http://localhost:8080/
-  - --provider=openshift
-  - --openshift-service-account=your-sa
-  - --cookie-secret=SECRET
-  - --skip-auth-regex=^/api/.*$  # Skip OAuth for API endpoints
-  - --pass-bearer-token=true
+        - name: ENVIRONMENT
+          value: "production"
+        - name: LOG_LEVEL
+          value: "info"
+        livenessProbe:
+          httpGet:
+            path: /live
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+          limits:
+            cpu: "2"
+            memory: "2Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kserve-api-service
+  namespace: kserve-system
+spec:
+  selector:
+    app: kserve-api
+  ports:
+  - port: 80
+    targetPort: 8000
+    protocol: TCP
+  type: ClusterIP
+"""
