@@ -1,140 +1,577 @@
-from flask import Flask, request, jsonify, render_template_string
-from flask_cors import CORS
-import time
+# src/services/utils.py
 import yaml
-import os
+import re
+from typing import Dict, Any, List, Optional
+from pathlib import Path
+import logging
 
-app = Flask(__name__)
-CORS(app)
+logger = logging.getLogger(__name__)
 
-# Simple in-memory user storage (use a proper database in production)
-users = {
-    "admin": "password123",
-    "user": "test123"
-}
-
-# Store active sessions (use Redis or proper session management in production)
-sessions = {}
-
-@app.route('/')
-def index():
-    return render_template_string(open('index.html').read())
-
-@app.route('/api/login', methods=['POST'])
-def login():
-    data = request.get_json()
-    username = data.get('username')
-    password = data.get('password')
+class ConfigManager:
+    """Configuration management utilities for KServe InferenceService generation"""
     
-    if username in users and users[username] == password:
-        session_token = f"session_{username}_{int(time.time())}"
-        sessions[session_token] = username
-        return jsonify({
-            "success": True,
-            "token": session_token,
-            "message": "Login successful"
-        })
-    else:
-        return jsonify({
-            "success": False,
-            "message": "Invalid credentials"
-        }), 401
-
-@app.route('/api/generate-yaml', methods=['POST'])
-def generate_yaml():
-    data = request.get_json()
+    # Environment patterns for auto-detection
+    ENVIRONMENT_PATTERNS = {
+        'aifarm-rnd-dev': [
+            r'.*dev.*',
+            r'.*development.*',
+            r'.*aifarm-rnd-dev.*'
+        ],
+        'aifarm-rnd-qat': [
+            r'.*qat.*',
+            r'.*quality.*',
+            r'.*test.*',
+            r'.*aifarm-rnd-qat.*'
+        ],
+        'aifarm-rnd-prod': [
+            r'.*prod.*',
+            r'.*production.*',
+            r'.*aifarm-rnd-prod.*'
+        ]
+    }
     
-    # Generate Kubernetes inference service YAML
-    yaml_content = {
-        "apiVersion": "serving.kserve.io/v1beta1",
-        "kind": "InferenceService",
-        "metadata": {
-            "name": data.get('serviceName', 'inference-service'),
-            "namespace": "default"
-        },
-        "spec": {
-            "predictor": {
-                "containers": [
-                    {
-                        "name": "predictor",
-                        "image": f"inference-runtime:{data.get('runtime', 'pytorch')}",
-                        "env": [
-                            {
-                                "name": "MODEL_PATH",
-                                "value": data.get('s3Url', 's3://model-bucket/model')
-                            }
-                        ],
-                        "resources": {
-                            "requests": {
-                                "cpu": data.get('cpuRequest', '1'),
-                                "memory": data.get('memoryRequest', '2Gi'),
-                                "nvidia.com/gpu": data.get('gpuRequest', '1')
-                            },
-                            "limits": {
-                                "cpu": data.get('cpuRequest', '1'),
-                                "memory": data.get('memoryRequest', '2Gi'),
-                                "nvidia.com/gpu": data.get('gpuRequest', '1')
-                            }
-                        }
-                    }
-                ]
+    # Required configuration fields
+    REQUIRED_FIELDS = ['name', 'storage_uri', 'runtime_type']
+    
+    # Valid runtime types
+    VALID_RUNTIMES = ['triton', 'sklearn', 'vllm']
+    
+    # Valid storage URI schemes
+    VALID_STORAGE_SCHEMES = ['s3://', 'gs://', 'pvc://']
+    
+    @classmethod
+    def parse_config_file(cls, file_content: bytes) -> Dict[str, Any]:
+        """Parse YAML configuration file from bytes"""
+        try:
+            config_str = file_content.decode('utf-8')
+            config = yaml.safe_load(config_str)
+            
+            if not isinstance(config, dict):
+                raise ValueError("Configuration file must contain a YAML dictionary")
+            
+            return config
+            
+        except yaml.YAMLError as e:
+            raise ValueError(f"Invalid YAML format: {str(e)}")
+        except UnicodeDecodeError:
+            raise ValueError("Configuration file must be UTF-8 encoded")
+        except Exception as e:
+            raise ValueError(f"Failed to parse configuration: {str(e)}")
+    
+    @classmethod
+    def validate_config(cls, config: Dict[str, Any]) -> tuple[bool, List[str]]:
+        """Validate basic configuration requirements"""
+        errors = []
+        
+        # Check required fields
+        for field in cls.REQUIRED_FIELDS:
+            if field not in config or config[field] is None:
+                errors.append(f"Missing required field: {field}")
+            elif not str(config[field]).strip():
+                errors.append(f"Field '{field}' cannot be empty")
+        
+        # Validate runtime type
+        if config.get('runtime_type'):
+            if config['runtime_type'].lower() not in cls.VALID_RUNTIMES:
+                errors.append(f"Invalid runtime_type. Must be one of: {', '.join(cls.VALID_RUNTIMES)}")
+        
+        # Validate storage URI
+        if config.get('storage_uri'):
+            storage_uri = config['storage_uri']
+            if not any(storage_uri.startswith(scheme) for scheme in cls.VALID_STORAGE_SCHEMES):
+                errors.append(f"storage_uri must start with one of: {', '.join(cls.VALID_STORAGE_SCHEMES)}")
+        
+        # Validate service name
+        if config.get('name'):
+            if not cls._is_valid_k8s_name(config['name']):
+                errors.append("name must be a valid Kubernetes resource name (lowercase alphanumeric and hyphens)")
+        
+        # Validate replica counts
+        if config.get('min_replicas'):
+            try:
+                min_replicas = int(config['min_replicas'])
+                if min_replicas < 0:
+                    errors.append("min_replicas must be >= 0")
+            except ValueError:
+                errors.append("min_replicas must be a valid integer")
+        
+        if config.get('max_replicas'):
+            try:
+                max_replicas = int(config['max_replicas'])
+                min_replicas = int(config.get('min_replicas', 1))
+                if max_replicas < min_replicas:
+                    errors.append("max_replicas must be >= min_replicas")
+            except ValueError:
+                errors.append("max_replicas must be a valid integer")
+        
+        # Validate resource specifications
+        errors.extend(cls._validate_resource_specs(config))
+        
+        # Validate environment variables
+        if config.get('env_vars') and not isinstance(config['env_vars'], dict):
+            errors.append("env_vars must be a dictionary")
+        
+        # Validate annotations
+        if config.get('annotations') and not isinstance(config['annotations'], dict):
+            errors.append("annotations must be a dictionary")
+        
+        # Validate labels
+        if config.get('labels') and not isinstance(config['labels'], dict):
+            errors.append("labels must be a dictionary")
+        
+        return len(errors) == 0, errors
+    
+    @classmethod
+    def _validate_resource_specs(cls, config: Dict[str, Any]) -> List[str]:
+        """Validate CPU, memory, and GPU resource specifications"""
+        errors = []
+        
+        # Validate CPU resources
+        for cpu_field in ['cpu_request', 'cpu_limit']:
+            if config.get(cpu_field):
+                if not cls._is_valid_cpu_spec(config[cpu_field]):
+                    errors.append(f"{cpu_field} must be a valid CPU specification (e.g., '2', '500m', '1.5')")
+        
+        # Validate memory resources
+        for mem_field in ['memory_request', 'memory_limit']:
+            if config.get(mem_field):
+                if not cls._is_valid_memory_spec(config[mem_field]):
+                    errors.append(f"{mem_field} must be a valid memory specification (e.g., '1Gi', '512Mi', '2G')")
+        
+        # Validate GPU resources
+        for gpu_field in ['gpu_request', 'gpu_limit']:
+            if config.get(gpu_field):
+                try:
+                    gpu_count = int(config[gpu_field])
+                    if gpu_count < 0:
+                        errors.append(f"{gpu_field} must be >= 0")
+                except ValueError:
+                    errors.append(f"{gpu_field} must be a valid integer")
+        
+        # Validate resource relationships
+        if config.get('cpu_request') and config.get('cpu_limit'):
+            try:
+                request = cls._parse_cpu_value(config['cpu_request'])
+                limit = cls._parse_cpu_value(config['cpu_limit'])
+                if request > limit:
+                    errors.append("cpu_request cannot be greater than cpu_limit")
+            except:
+                pass  # Individual validation will catch format errors
+        
+        if config.get('memory_request') and config.get('memory_limit'):
+            try:
+                request = cls._parse_memory_value(config['memory_request'])
+                limit = cls._parse_memory_value(config['memory_limit'])
+                if request > limit:
+                    errors.append("memory_request cannot be greater than memory_limit")
+            except:
+                pass  # Individual validation will catch format errors
+        
+        return errors
+    
+    @classmethod
+    def _is_valid_k8s_name(cls, name: str) -> bool:
+        """Validate Kubernetes resource name format"""
+        if not isinstance(name, str):
+            return False
+        
+        # K8s names must be lowercase alphanumeric with hyphens
+        # Must start and end with alphanumeric character
+        pattern = r'^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+        return bool(re.match(pattern, name)) and len(name) <= 253
+    
+    @classmethod
+    def _is_valid_cpu_spec(cls, cpu_spec: str) -> bool:
+        """Validate CPU resource specification"""
+        if not isinstance(cpu_spec, str):
+            return False
+        
+        # CPU can be: integer, decimal, or with 'm' suffix for millicores
+        patterns = [
+            r'^\d+$',           # Integer cores (e.g., "2")
+            r'^\d*\.\d+$',      # Decimal cores (e.g., "1.5")
+            r'^\d+m$'           # Millicores (e.g., "500m")
+        ]
+        
+        return any(re.match(pattern, cpu_spec) for pattern in patterns)
+    
+    @classmethod
+    def _is_valid_memory_spec(cls, memory_spec: str) -> bool:
+        """Validate memory resource specification"""
+        if not isinstance(memory_spec, str):
+            return False
+        
+        # Memory can have various units: Gi, Mi, Ki, G, M, K
+        pattern = r'^\d+(\.\d+)?(Ei|Pi|Ti|Gi|Mi|Ki|E|P|T|G|M|K)?$'
+        return bool(re.match(pattern, memory_spec))
+    
+    @classmethod
+    def _parse_cpu_value(cls, cpu_spec: str) -> float:
+        """Parse CPU specification to float value in cores"""
+        if cpu_spec.endswith('m'):
+            return float(cpu_spec[:-1]) / 1000
+        return float(cpu_spec)
+    
+    @classmethod
+    def _parse_memory_value(cls, memory_spec: str) -> int:
+        """Parse memory specification to bytes"""
+        # Memory unit multipliers
+        units = {
+            'Ki': 1024, 'Mi': 1024**2, 'Gi': 1024**3, 'Ti': 1024**4, 'Pi': 1024**5, 'Ei': 1024**6,
+            'K': 1000, 'M': 1000**2, 'G': 1000**3, 'T': 1000**4, 'P': 1000**5, 'E': 1000**6
+        }
+        
+        # Extract number and unit
+        pattern = r'^(\d+(?:\.\d+)?)(.*)?$'
+        match = re.match(pattern, memory_spec)
+        
+        if not match:
+            raise ValueError(f"Invalid memory specification: {memory_spec}")
+        
+        value = float(match.group(1))
+        unit = match.group(2) or ''
+        
+        multiplier = units.get(unit, 1)
+        return int(value * multiplier)
+    
+    @classmethod
+    def determine_environment_from_path(cls, file_path: str) -> str:
+        """Determine environment from file path or name"""
+        if not file_path:
+            return 'aifarm-rnd-dev'  # Default environment
+        
+        file_path_lower = file_path.lower()
+        
+        # Check each environment pattern
+        for env_name, patterns in cls.ENVIRONMENT_PATTERNS.items():
+            for pattern in patterns:
+                if re.search(pattern, file_path_lower):
+                    return env_name
+        
+        # Default to dev environment if no pattern matches
+        return 'aifarm-rnd-dev'
+    
+    @classmethod
+    def get_config_template(cls, runtime_type: str) -> Dict[str, Any]:
+        """Get configuration template for a specific runtime"""
+        base_template = {
+            'name': 'my-inference-service',
+            'storage_uri': 's3://my-bucket/models/',
+            'runtime_type': runtime_type,
+            's3_secret': 'model-s3-secret',
+            'min_replicas': 1,
+            'max_replicas': 3,
+            'cpu_request': '2',
+            'memory_request': '4Gi',
+            'cpu_limit': '4',
+            'memory_limit': '8Gi',
+            'route': 'default'
+        }
+        
+        # Add runtime-specific defaults
+        if runtime_type == 'triton':
+            base_template.update({
+                'gpu_request': '1',
+                'gpu_limit': '1',
+                'triton_version': '23.10',
+                'model_repository_path': '/models',
+                'log_verbose': 1,
+                'model_control_mode': 'explicit',
+                'protocol_version': 'v2'
+            })
+        elif runtime_type == 'vllm':
+            base_template.update({
+                'gpu_request': '1',
+                'gpu_limit': '1',
+                'vllm_version': '0.2.7',
+                'tensor_parallel_size': 1,
+                'max_model_len': 4096,
+                'trust_remote_code': True,
+                'dtype': 'float16'
+            })
+        elif runtime_type == 'sklearn':
+            base_template.update({
+                'sklearn_version': '1.3.0',
+                'model_name': 'model',
+                'protocol_version': 'v1',
+                'workers': 1
+            })
+        
+        return base_template
+    
+    @classmethod
+    def merge_configs(cls, base_config: Dict[str, Any], override_config: Dict[str, Any]) -> Dict[str, Any]:
+        """Merge two configuration dictionaries with override taking precedence"""
+        merged = base_config.copy()
+        
+        for key, value in override_config.items():
+            if isinstance(value, dict) and key in merged and isinstance(merged[key], dict):
+                merged[key] = cls.merge_configs(merged[key], value)
+            else:
+                merged[key] = value
+        
+        return merged
+    
+    @classmethod
+    def sanitize_config(cls, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Sanitize configuration by removing internal fields and normalizing values"""
+        sanitized = {}
+        
+        for key, value in config.items():
+            # Skip internal fields (prefixed with _)
+            if key.startswith('_'):
+                continue
+            
+            # Normalize string values
+            if isinstance(value, str):
+                sanitized[key] = value.strip()
+            elif isinstance(value, bool):
+                sanitized[key] = value
+            elif isinstance(value, (int, float)):
+                sanitized[key] = value
+            elif isinstance(value, dict):
+                sanitized[key] = cls.sanitize_config(value)
+            elif isinstance(value, list):
+                sanitized[key] = value
+            else:
+                sanitized[key] = str(value)
+        
+        return sanitized
+    
+    @classmethod
+    def validate_environment(cls, environment: str) -> bool:
+        """Validate if environment is one of the supported ones"""
+        return environment in cls.ENVIRONMENT_PATTERNS.keys()
+    
+    @classmethod
+    def get_environment_info(cls) -> Dict[str, Dict[str, str]]:
+        """Get information about all supported environments"""
+        return {
+            'aifarm-rnd-dev': {
+                'name': 'Development',
+                'description': 'Development environment for testing and experimentation',
+                'cluster': 'aifarm-rnd-dev-cluster'
+            },
+            'aifarm-rnd-qat': {
+                'name': 'Quality Assurance',
+                'description': 'QAT environment for pre-production testing',
+                'cluster': 'aifarm-rnd-qat-cluster'
+            },
+            'aifarm-rnd-prod': {
+                'name': 'Production',
+                'description': 'Production environment for live workloads',
+                'cluster': 'aifarm-rnd-prod-cluster'
             }
+        }
+    
+    @classmethod
+    def extract_config_summary(cls, config: Dict[str, Any]) -> Dict[str, str]:
+        """Extract key configuration details for summary"""
+        return {
+            'name': config.get('name', 'N/A'),
+            'runtime_type': config.get('runtime_type', 'N/A'),
+            'storage_uri': config.get('storage_uri', 'N/A'),
+            'environment': config.get('environment', 'auto-detect'),
+            'gpu_enabled': str(bool(config.get('gpu_request') or config.get('gpu_limit'))),
+            'custom_image': str(bool(config.get('custom_image'))),
+            'replicas': f"{config.get('min_replicas', 1)}-{config.get('max_replicas', 'auto')}"
+        }
+    
+    @classmethod
+    def load_config_from_file(cls, file_path: str) -> Dict[str, Any]:
+        """Load configuration from file path"""
+        try:
+            path = Path(file_path)
+            if not path.exists():
+                raise FileNotFoundError(f"Configuration file not found: {file_path}")
+            
+            if not path.suffix.lower() in ['.yaml', '.yml']:
+                raise ValueError("Configuration file must be YAML format (.yaml or .yml)")
+            
+            with open(path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+            
+            if not isinstance(config, dict):
+                raise ValueError("Configuration file must contain a YAML dictionary")
+            
+            return config
+            
+        except Exception as e:
+            logger.error(f"Failed to load config from {file_path}: {str(e)}")
+            raise
+    
+    @classmethod
+    def save_config_to_file(cls, config: Dict[str, Any], file_path: str) -> None:
+        """Save configuration to YAML file"""
+        try:
+            path = Path(file_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            
+            with open(path, 'w', encoding='utf-8') as f:
+                yaml.dump(config, f, default_flow_style=False, indent=2, sort_keys=True)
+            
+            logger.info(f"Configuration saved to {file_path}")
+            
+        except Exception as e:
+            logger.error(f"Failed to save config to {file_path}: {str(e)}")
+            raise
+    
+    @classmethod
+    def get_default_s3_secret_name(cls, environment: str) -> str:
+        """Get default S3 secret name for environment"""
+        secret_mapping = {
+            'aifarm-rnd-dev': 'model-s3-secret-dev',
+            'aifarm-rnd-qat': 'model-s3-secret-qat', 
+            'aifarm-rnd-prod': 'model-s3-secret-prod'
+        }
+        return secret_mapping.get(environment, 'model-s3-secret')
+    
+    @classmethod
+    def validate_s3_uri(cls, s3_uri: str) -> bool:
+        """Validate S3 URI format"""
+        if not s3_uri.startswith('s3://'):
+            return False
+        
+        # Basic S3 URI pattern: s3://bucket/path/
+        pattern = r'^s3://[a-z0-9][a-z0-9\-]*[a-z0-9](/.*)?$'
+        return bool(re.match(pattern, s3_uri))
+    
+    @classmethod
+    def validate_gcs_uri(cls, gcs_uri: str) -> bool:
+        """Validate Google Cloud Storage URI format"""
+        if not gcs_uri.startswith('gs://'):
+            return False
+        
+        # Basic GCS URI pattern: gs://bucket/path/
+        pattern = r'^gs://[a-z0-9][a-z0-9\-\_]*[a-z0-9](/.*)?$'
+        return bool(re.match(pattern, gcs_uri))
+    
+    @classmethod
+    def validate_pvc_uri(cls, pvc_uri: str) -> bool:
+        """Validate PVC URI format"""
+        if not pvc_uri.startswith('pvc://'):
+            return False
+        
+        # Basic PVC URI pattern: pvc://pvc-name/path/
+        pattern = r'^pvc://[a-z0-9]([-a-z0-9]*[a-z0-9])?(/.*)?$'
+        return bool(re.match(pattern, pvc_uri))
+
+
+class ConfigDefaults:
+    """Default configuration values for different scenarios"""
+    
+    # Default resource requirements by runtime
+    RUNTIME_DEFAULTS = {
+        'triton': {
+            'cpu_request': '2',
+            'memory_request': '4Gi',
+            'cpu_limit': '4',
+            'memory_limit': '8Gi',
+            'gpu_request': '1',
+            'gpu_limit': '1'
+        },
+        'vllm': {
+            'cpu_request': '4',
+            'memory_request': '16Gi', 
+            'cpu_limit': '8',
+            'memory_limit': '32Gi',
+            'gpu_request': '1',
+            'gpu_limit': '1'
+        },
+        'sklearn': {
+            'cpu_request': '500m',
+            'memory_request': '1Gi',
+            'cpu_limit': '2',
+            'memory_limit': '4Gi'
         }
     }
     
-    yaml_string = yaml.dump(yaml_content, default_flow_style=False)
+    # Default replica counts by environment
+    ENVIRONMENT_DEFAULTS = {
+        'aifarm-rnd-dev': {
+            'min_replicas': 1,
+            'max_replicas': 2
+        },
+        'aifarm-rnd-qat': {
+            'min_replicas': 1,
+            'max_replicas': 3
+        },
+        'aifarm-rnd-prod': {
+            'min_replicas': 2,
+            'max_replicas': 10
+        }
+    }
     
-    return jsonify({
-        "success": True,
-        "yaml": yaml_string
-    })
+    @classmethod
+    def get_runtime_defaults(cls, runtime_type: str) -> Dict[str, Any]:
+        """Get default configuration for a runtime type"""
+        return cls.RUNTIME_DEFAULTS.get(runtime_type.lower(), {})
+    
+    @classmethod
+    def get_environment_defaults(cls, environment: str) -> Dict[str, Any]:
+        """Get default configuration for an environment"""
+        return cls.ENVIRONMENT_DEFAULTS.get(environment, cls.ENVIRONMENT_DEFAULTS['aifarm-rnd-dev'])
+    
+    @classmethod
+    def apply_defaults(cls, config: Dict[str, Any], environment: str = None) -> Dict[str, Any]:
+        """Apply appropriate defaults to configuration"""
+        enhanced_config = config.copy()
+        
+        # Apply runtime defaults
+        runtime_type = config.get('runtime_type', 'sklearn')
+        runtime_defaults = cls.get_runtime_defaults(runtime_type)
+        
+        for key, value in runtime_defaults.items():
+            if key not in enhanced_config:
+                enhanced_config[key] = value
+        
+        # Apply environment defaults
+        if environment:
+            env_defaults = cls.get_environment_defaults(environment)
+            for key, value in env_defaults.items():
+                if key not in enhanced_config:
+                    enhanced_config[key] = value
+        
+        return enhanced_config
 
-@app.route('/api/deploy', methods=['POST'])
-def deploy():
-    data = request.get_json()
-    yaml_content = data.get('yaml')
-    
-    # Simulate deployment process
-    time.sleep(2)  # Simulate deployment time
-    
-    return jsonify({
-        "success": True,
-        "message": "Deployment completed successfully!",
-        "status": "Running",
-        "endpoint": f"http://inference-service.default.svc.cluster.local/v1/models/{data.get('serviceName', 'inference-service')}"
-    })
 
-@app.route('/api/deployment-status', methods=['GET'])
-def deployment_status():
-    # Simulate deployment progress
-    import random
-    stages = [
-        "Validating YAML configuration...",
-        "Creating Kubernetes resources...",
-        "Pulling container images...",
-        "Allocating GPU resources...",
-        "Starting inference service...",
-        "Running health checks...",
-        "Deployment completed!"
-    ]
+# Example usage and testing functions
+def example_usage():
+    """Example usage of ConfigManager utilities"""
     
-    stage = request.args.get('stage', 0)
-    stage = int(stage)
+    # Example 1: Parse config from string
+    config_yaml = """
+    name: test-service
+    storage_uri: s3://my-bucket/models/
+    runtime_type: triton
+    cpu_request: "2"
+    memory_request: "4Gi"
+    gpu_request: "1"
+    """
     
-    if stage < len(stages):
-        return jsonify({
-            "stage": stage,
-            "message": stages[stage],
-            "progress": int((stage / len(stages)) * 100),
-            "completed": False
-        })
-    else:
-        return jsonify({
-            "stage": stage,
-            "message": "Deployment successful!",
-            "progress": 100,
-            "completed": True
-        })
+    config = ConfigManager.parse_config_file(config_yaml.encode())
+    valid, errors = ConfigManager.validate_config(config)
+    environment = ConfigManager.determine_environment_from_path("configs/aifarm-rnd-dev/test.yaml")
+    
+    print(f"Valid: {valid}")
+    print(f"Errors: {errors}")
+    print(f"Environment: {environment}")
+    print(f"Summary: {ConfigManager.extract_config_summary(config)}")
+    
+    # Example 2: Get template
+    template = ConfigManager.get_config_template('vllm')
+    print(f"vLLM Template: {template}")
+    
+    # Example 3: Apply defaults
+    minimal_config = {
+        'name': 'minimal-service',
+        'storage_uri': 's3://bucket/model/',
+        'runtime_type': 'sklearn'
+    }
+    
+    enhanced = ConfigDefaults.apply_defaults(minimal_config, 'aifarm-rnd-prod')
+    print(f"Enhanced config: {enhanced}")
 
-if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+
+if __name__ == "__main__":
+    example_usage()
