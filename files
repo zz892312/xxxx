@@ -1,4 +1,118 @@
-"""
+# src/runtimes/vllm.py (Updated for optional custom image and RunAI support)
+from kubernetes import client
+from kserve import V1beta1PredictorSpec, V1beta1ModelSpec, V1beta1ModelFormat
+from .base import BaseRuntime
+from typing import Dict, Any, List
+
+class VLLMRuntime(BaseRuntime):
+    """vLLM runtime implementation for large language models with RunAI scheduler support"""
+    
+    def create_predictor_spec(self, resources: client.V1ResourceRequirements) -> V1beta1PredictorSpec:
+        """Create vLLM-specific predictor specification"""
+        predictor_spec = V1beta1PredictorSpec(
+            min_replicas=self.min_replicas,
+            max_replicas=self.max_replicas
+        )
+        
+        # Create vLLM Model specification
+        model_spec = V1beta1ModelSpec(
+            model_format=V1beta1ModelFormat(name="vllm"),
+            storage_uri=self.storage_uri,
+            resources=resources
+        )
+        
+        # Add runtime version (optional - will use cluster default if not specified)
+        if self.config.get('vllm_version'):
+            model_spec.runtime_version = self.config['vllm_version']
+        
+        # Add custom image (optional - will use cluster serving runtime if not specified)
+        if self.config.get('custom_image'):
+            model_spec.image = self.config['custom_image']
+            self.config['_uses_custom_image'] = True
+        else:
+            # Will inherit from cluster serving runtime
+            self.config['_uses_cluster_runtime'] = True
+        
+        # Add vLLM-specific environment variables
+        env_vars = self.create_env_vars(self._get_vllm_env_vars())
+        if env_vars:
+            model_spec.env = env_vars
+        
+        # Add GPU node selector for vLLM workloads
+        model_spec.node_selector = self._create_node_selector()
+        
+        predictor_spec.model = model_spec
+        return predictor_spec
+    
+    def _create_node_selector(self) -> Dict[str, str]:
+        """Create node selector for GPU workloads with RunAI scheduler"""
+        node_selector = {}
+        
+        # vLLM requires GPU nodes
+        node_selector['accelerator'] = 'nvidia-tesla-v100'  # or appropriate GPU type
+        node_selector['node-type'] = 'gpu'
+        node_selector['workload-type'] = 'llm-inference'
+        
+        # Add GPU memory requirements for large models
+        if self.config.get('tensor_parallel_size', 1) > 1:
+            node_selector['gpu-memory'] = 'high'  # for multi-GPU setups
+        
+        # Add custom node selectors if specified
+        if self.config.get('node_selector'):
+            node_selector.update(self.config['node_selector'])
+            
+        return node_selector if node_selector else None
+    
+    def _get_vllm_env_vars(self) -> Dict[str, str]:
+        """Get vLLM-specific environment variables"""
+        env_vars = {}
+        
+        # vLLM specific configurations
+        if self.config.get('tensor_parallel_size'):
+            env_vars['TENSOR_PARALLEL_SIZE'] = str(self.config['tensor_parallel_size'])
+        
+        if self.config.get('max_model_len'):
+            env_vars['MAX_MODEL_LEN'] = str(self.config['max_model_len'])
+        
+        if self.config.get('trust_remote_code'):
+            env_vars['TRUST_REMOTE_CODE'] = str(self.config['trust_remote_code']).lower()
+        
+        if self.config.get('dtype'):
+            env_vars['DTYPE'] = self.config['dtype']
+        
+        if self.config.get('quantization'):
+            env_vars['QUANTIZATION'] = self.config['quantization']
+        
+        if self.config.get('served_model_name'):
+            env_vars['SERVED_MODEL_NAME'] = self.config['served_model_name']
+        
+        # RunAI specific environment variables
+        if self.config.get('runai_project'):
+            env_vars['RUNAI_PROJECT'] = self.config['runai_project']
+        
+        # Performance optimization
+        if self.config.get('max_num_seqs'):
+            env_vars['MAX_NUM_SEQS'] = str(self.config['max_num_seqs'])
+        
+        if self.config.get('swap_space'):
+            env_vars['SWAP_SPACE'] = str(self.config['swap_space'])
+        
+        return env_vars
+    
+    def validate_config(self) -> List[str]:
+        """Validate vLLM-specific configuration"""
+        errors = []
+        
+        # Validate tensor parallel size
+        if self.config.get('tensor_parallel_size'):
+            try:
+                tp_size = int(self.config['tensor_parallel_size'])
+                if tp_size < 1 or tp_size > 8:
+                    errors.append("tensor_parallel_size must be between 1 and 8")
+                # Must match GPU count
+                gpu_count = int(self.config.get('gpu_request', self.config.get('gpu_limit', 1)))
+                if tp_size != gpu_count:
+                    errors.appen"""
 KServe Inference Service API - Restructured with Runtime-Specific Logic
 """
 
@@ -146,7 +260,7 @@ class BaseRuntime(ABC):
         
         return env_vars
 
-# src/runtimes/triton.py
+# src/runtimes/triton.py (Updated to handle optional custom image)
 from kubernetes import client
 from kserve import V1beta1PredictorSpec, V1beta1TritonSpec
 from .base import BaseRuntime
@@ -168,13 +282,18 @@ class TritonRuntime(BaseRuntime):
             resources=resources
         )
         
-        # Add runtime version
+        # Add runtime version (optional - will use cluster default if not specified)
         if self.config.get('triton_version'):
             triton_spec.runtime_version = self.config['triton_version']
         
-        # Add custom image
+        # Add custom image (optional - will use cluster serving runtime if not specified)
         if self.config.get('custom_image'):
             triton_spec.image = self.config['custom_image']
+            # Add annotation to indicate custom image usage
+            self.config['_uses_custom_image'] = True
+        else:
+            # Will inherit from cluster serving runtime (ClusterServingRuntime)
+            self.config['_uses_cluster_runtime'] = True
         
         # Add Triton-specific environment variables
         env_vars = self.create_env_vars(self._get_triton_env_vars())
@@ -185,8 +304,26 @@ class TritonRuntime(BaseRuntime):
         if self.config.get('protocol_version'):
             triton_spec.protocol_version = self.config['protocol_version']
         
+        # Add scheduler-specific node affinity for RunAI
+        triton_spec.node_selector = self._create_node_selector()
+        
         predictor_spec.triton = triton_spec
         return predictor_spec
+    
+    def _create_node_selector(self) -> Dict[str, str]:
+        """Create node selector for RunAI scheduler compatibility"""
+        node_selector = {}
+        
+        # Add GPU node selector if GPU is requested
+        if self.config.get('gpu_request') or self.config.get('gpu_limit'):
+            node_selector['accelerator'] = 'nvidia-tesla-v100'  # or appropriate GPU type
+            node_selector['node-type'] = 'gpu'
+        
+        # Add custom node selectors if specified
+        if self.config.get('node_selector'):
+            node_selector.update(self.config['node_selector'])
+            
+        return node_selector if node_selector else None
     
     def _get_triton_env_vars(self) -> Dict[str, str]:
         """Get Triton-specific environment variables"""
@@ -204,17 +341,21 @@ class TritonRuntime(BaseRuntime):
         if self.config.get('model_control_mode'):
             env_vars['TRITON_MODEL_CONTROL_MODE'] = self.config['model_control_mode']
         
+        # Add RunAI specific environment variables
+        if self.config.get('runai_project'):
+            env_vars['RUNAI_PROJECT'] = self.config['runai_project']
+        
         return env_vars
     
     def validate_config(self) -> List[str]:
         """Validate Triton-specific configuration"""
         errors = []
         
-        # Validate Triton version format
+        # Validate Triton version format (optional)
         if self.config.get('triton_version'):
             version = self.config['triton_version']
-            if not isinstance(version, str) or not version.replace('.', '').isdigit():
-                errors.append("triton_version must be in format 'XX.YY'")
+            if not isinstance(version, str) or not version.replace('.', '').replace('-', '').replace('_', '').replace('py3', '').isalnum():
+                errors.append("triton_version must be in format 'XX.YY' or 'XX.YY-py3'")
         
         # Validate model control mode
         valid_control_modes = ['none', 'poll', 'explicit']
@@ -231,29 +372,39 @@ class TritonRuntime(BaseRuntime):
             except ValueError:
                 errors.append("log_verbose must be a valid integer")
         
+        # Validate custom image format (optional)
+        if self.config.get('custom_image'):
+            image = self.config['custom_image']
+            if not isinstance(image, str) or not ('/' in image and ':' in image):
+                errors.append("custom_image must be in format 'registry/repo:tag'")
+        
         return errors
     
     @classmethod
     def get_runtime_info(cls) -> Dict[str, Any]:
         return {
             "name": "triton",
-            "description": "NVIDIA Triton Inference Server",
+            "description": "NVIDIA Triton Inference Server with RunAI scheduler support",
             "supported_formats": ["tensorrt", "onnx", "pytorch", "tensorflow", "python", "dali"],
             "gpu_support": True,
+            "scheduler": "runai-scheduler",
+            "deployment_mode": "rawDeployment", 
             "custom_parameters": [
                 "triton_version", "custom_image", "model_repository_path",
-                "triton_server_args", "log_verbose", "model_control_mode", "protocol_version"
-            ]
+                "triton_server_args", "log_verbose", "model_control_mode", 
+                "protocol_version", "runai_project", "node_selector"
+            ],
+            "notes": "Custom image is optional - will inherit from ClusterServingRuntime if not specified"
         }
 
-# src/runtimes/sklearn.py
+# src/runtimes/sklearn.py (Updated for optional custom image and RunAI support)
 from kubernetes import client
 from kserve import V1beta1PredictorSpec, V1beta1SKLearnSpec
 from .base import BaseRuntime
 from typing import Dict, Any, List
 
 class SKLearnRuntime(BaseRuntime):
-    """Scikit-learn runtime implementation"""
+    """Scikit-learn runtime implementation with RunAI scheduler support"""
     
     def create_predictor_spec(self, resources: client.V1ResourceRequirements) -> V1beta1PredictorSpec:
         """Create SKLearn-specific predictor specification"""
@@ -268,32 +419,61 @@ class SKLearnRuntime(BaseRuntime):
             resources=resources
         )
         
-        # Add runtime version
+        # Add runtime version (optional - will use cluster default if not specified)
         if self.config.get('sklearn_version'):
             sklearn_spec.runtime_version = self.config['sklearn_version']
         
-        # Add custom image
+        # Add custom image (optional - will use cluster serving runtime if not specified)
         if self.config.get('custom_image'):
             sklearn_spec.image = self.config['custom_image']
+            self.config['_uses_custom_image'] = True
+        else:
+            # Will inherit from cluster serving runtime
+            self.config['_uses_cluster_runtime'] = True
         
         # Add environment variables
         env_vars = self.create_env_vars(self._get_sklearn_env_vars())
         if env_vars:
             sklearn_spec.env = env_vars
         
+        # Add node selector for CPU-optimized nodes
+        sklearn_spec.node_selector = self._create_node_selector()
+        
         predictor_spec.sklearn = sklearn_spec
         return predictor_spec
+    
+    def _create_node_selector(self) -> Dict[str, str]:
+        """Create node selector for CPU workloads with RunAI scheduler"""
+        node_selector = {}
+        
+        # SKLearn typically runs on CPU nodes
+        node_selector['node-type'] = 'cpu'
+        node_selector['workload-type'] = 'inference'
+        
+        # Add custom node selectors if specified
+        if self.config.get('node_selector'):
+            node_selector.update(self.config['node_selector'])
+            
+        return node_selector if node_selector else None
     
     def _get_sklearn_env_vars(self) -> Dict[str, str]:
         """Get SKLearn-specific environment variables"""
         env_vars = {}
         
-        # Add any sklearn-specific environment variables
+        # Add sklearn-specific environment variables
         if self.config.get('model_name'):
             env_vars['MODEL_NAME'] = self.config['model_name']
         
         if self.config.get('protocol_version'):
             env_vars['PROTOCOL_VERSION'] = self.config['protocol_version']
+        
+        # Add RunAI specific environment variables
+        if self.config.get('runai_project'):
+            env_vars['RUNAI_PROJECT'] = self.config['runai_project']
+        
+        # Add performance tuning variables
+        if self.config.get('workers'):
+            env_vars['WORKERS'] = str(self.config['workers'])
         
         return env_vars
     
@@ -301,11 +481,26 @@ class SKLearnRuntime(BaseRuntime):
         """Validate SKLearn-specific configuration"""
         errors = []
         
-        # Validate sklearn version format
+        # Validate sklearn version format (optional)
         if self.config.get('sklearn_version'):
             version = self.config['sklearn_version']
             if not isinstance(version, str):
                 errors.append("sklearn_version must be a string")
+        
+        # Validate custom image format (optional)
+        if self.config.get('custom_image'):
+            image = self.config['custom_image']
+            if not isinstance(image, str) or not ('/' in image and ':' in image):
+                errors.append("custom_image must be in format 'registry/repo:tag'")
+        
+        # Validate worker count
+        if self.config.get('workers'):
+            try:
+                workers = int(self.config['workers'])
+                if workers < 1 or workers > 32:
+                    errors.append("workers must be between 1 and 32")
+            except ValueError:
+                errors.append("workers must be a valid integer")
         
         return errors
     
@@ -313,10 +508,16 @@ class SKLearnRuntime(BaseRuntime):
     def get_runtime_info(cls) -> Dict[str, Any]:
         return {
             "name": "sklearn",
-            "description": "Scikit-learn models",
+            "description": "Scikit-learn models with RunAI scheduler support",
             "supported_formats": ["pickle", "joblib"],
             "gpu_support": False,
-            "custom_parameters": ["sklearn_version", "custom_image", "model_name", "protocol_version"]
+            "scheduler": "runai-scheduler",
+            "deployment_mode": "rawDeployment",
+            "custom_parameters": [
+                "sklearn_version", "custom_image", "model_name", 
+                "protocol_version", "runai_project", "workers", "node_selector"
+            ],
+            "notes": "Custom image is optional - will inherit from ClusterServingRuntime if not specified"
         }
 
 # src/runtimes/vllm.py
@@ -466,6 +667,12 @@ class InferenceServiceManager:
                 predictor=predictor_spec
             )
             
+            # Create annotations for rawDeployment and RunAI scheduler
+            annotations = self._create_annotations(config)
+            
+            # Create labels
+            labels = self._create_labels(service_name, runtime_type, environment)
+            
             # Create InferenceService
             inference_service = V1beta1InferenceService(
                 api_version="serving.kserve.io/v1beta1",
@@ -473,11 +680,8 @@ class InferenceServiceManager:
                 metadata=client.V1ObjectMeta(
                     name=service_name,
                     namespace=environment,
-                    labels={
-                        "app": service_name,
-                        "runtime": runtime_type,
-                        "environment": environment
-                    }
+                    annotations=annotations,
+                    labels=labels
                 ),
                 spec=inference_service_spec
             )
@@ -502,6 +706,37 @@ class InferenceServiceManager:
         except Exception as e:
             logger.error(f"Failed to create inference service: {str(e)}")
             raise
+    
+    def _create_annotations(self, config: Dict[str, Any]) -> Dict[str, str]:
+        """Create annotations including rawDeployment and scheduler"""
+        annotations = {}
+        
+        # Always use rawDeployment mode (bypass serverless)
+        annotations["serving.kserve.io/deploymentMode"] = "RawDeployment"
+        
+        # Set RunAI scheduler for GPU workload management
+        annotations["scheduler.alpha.kubernetes.io/preferred-node"] = "runai-scheduler"
+        
+        # Add custom annotations if specified
+        if config.get('annotations'):
+            annotations.update(config['annotations'])
+            
+        return annotations
+    
+    def _create_labels(self, service_name: str, runtime_type: str, environment: str) -> Dict[str, str]:
+        """Create standard labels for the InferenceService"""
+        labels = {
+            "app": service_name,
+            "runtime": runtime_type,
+            "environment": environment,
+            "deployment-mode": "raw",
+            "scheduler": "runai"
+        }
+        
+        # Add GPU label if GPU resources are requested
+        # This will be set by runtime handlers if needed
+        
+        return labels
     
     def validate_runtime_config(self, config: Dict[str, Any]) -> tuple[bool, list[str]]:
         """Validate runtime-specific configuration"""
@@ -931,7 +1166,156 @@ curl -X GET "http://localhost:8000/" \
   | jq '.'
 """
 
-# 📋 Complete CURL Examples with Real Usage:
+# 📚 Comprehensive Swagger Documentation Added!
+
+## 🎯 **Enhanced Swagger Features**
+
+### **1. Rich API Documentation**
+- **Custom OpenAPI Schema**: Detailed descriptions for all endpoints
+- **Interactive Examples**: Try the API directly from the docs
+- **Comprehensive Models**: Pydantic models for all request/response types
+- **Detailed Responses**: Complete response schemas with examples
+
+### **2. Professional API Info**
+- **Custom Logo**: KServe logo in documentation
+- **Multiple Environments**: Dev, QAT, and Production server URLs
+- **Contact Information**: Team contact details
+- **Organized Tags**: Grouped endpoints by functionality
+
+### **3. Enhanced Endpoint Documentation**
+
+#### **Generation Endpoints**
+- **POST `/api/v1/generate`**: Generate InferenceService with rich examples
+- **Response Headers**: `X-Environment`, `Content-Disposition`
+- **File Upload**: Detailed file requirements and validation
+
+#### **Validation Endpoints**  
+- **POST `/api/v1/validate`**: Comprehensive validation with error details
+- **Response Model**: Structured validation results
+
+#### **Runtime Info Endpoints**
+- **GET `/api/v1/supported-runtimes`**: All runtime capabilities
+- **GET `/api/v1/runtime/{type}/info`**: Specific runtime details
+
+## 🚀 **Access the Documentation**
+
+```bash
+# Start the API
+uvicorn src.app:app --host 0.0.0.0 --port 8000 --reload
+
+# Access Swagger UI
+open http://localhost:8000/docs
+
+# Access ReDoc (alternative documentation)
+open http://localhost:8000/redoc
+
+# Get OpenAPI JSON schema
+curl http://localhost:8000/openapi.json | jq '.'
+```
+
+## 📊 **Swagger UI Features**
+
+### **Interactive Testing**
+- **File Upload**: Direct file upload testing in the browser
+- **Form Parameters**: Environment override testing
+- **Response Preview**: See exact API responses
+- **Download Files**: Test file downloads directly
+
+### **Example Requests**
+```bash
+# All examples now work directly from Swagger UI
+# Click "Try it out" on any endpoint to test!
+
+# Example: Upload config file
+# 1. Click "Try it out" on /api/v1/generate
+# 2. Select your YAML file
+# 3. Click "Execute"
+# 4. Download the generated service YAML
+```
+
+### **Response Examples**
+The Swagger docs now show complete response examples:
+
+```json
+// GET /api/v1/supported-runtimes response
+{
+  "supported_runtimes": {
+    "triton": {
+      "name": "triton",
+      "description": "NVIDIA Triton Inference Server", 
+      "supported_formats": ["tensorrt", "onnx", "pytorch"],
+      "gpu_support": true,
+      "custom_parameters": ["triton_version", "custom_image"]
+    }
+  }
+}
+```
+
+## 🎨 **Updated Requirements**
+
+# requirements.txt (Updated)
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+kserve==0.11.2
+kubernetes==28.1.0
+pyyaml==6.0.1
+python-multipart==0.0.6
+pydantic==2.5.0  # Added for response models
+jinja2==3.1.2
+aiofiles==23.2.1
+
+## 🔧 **Advanced Swagger Customization**
+
+The documentation includes:
+
+### **Custom Styling**
+- **Professional Theme**: Clean, modern interface
+- **KServe Branding**: Logo and color scheme
+- **Organized Layout**: Tagged sections for easy navigation
+
+### **Rich Descriptions** 
+- **Markdown Support**: Full markdown in descriptions
+- **Code Examples**: YAML config examples inline
+- **Use Cases**: When and how to use each endpoint
+
+### **Error Handling**
+- **Detailed Error Responses**: Complete error schemas
+- **Status Codes**: All possible HTTP status codes documented
+- **Error Examples**: Sample error responses for debugging
+
+## 📖 **Documentation URLs**
+
+After starting the API, access:
+
+| URL | Description |
+|-----|-------------|
+| `http://localhost:8000/docs` | **Swagger UI** - Interactive API documentation |
+| `http://localhost:8000/redoc` | **ReDoc** - Alternative documentation view |
+| `http://localhost:8000/openapi.json` | **OpenAPI Schema** - Raw JSON schema |
+
+## 🎯 **Key Swagger Features**
+
+### **1. File Upload Testing**
+- Test YAML config uploads directly in browser
+- See real-time validation results
+- Download generated files instantly
+
+### **2. Environment Testing**
+- Test environment auto-detection
+- Override environment parameters
+- See environment-specific responses
+
+### **3. Runtime Discovery**
+- Browse all supported runtimes
+- Test runtime-specific endpoints
+- View runtime capabilities and parameters
+
+### **4. Validation Testing**
+- Upload configs for validation only
+- See detailed error messages
+- Test different config scenarios
+
+The Swagger documentation is now production-ready with comprehensive examples, interactive testing, and professional styling! 🚀📚
 
 # 1. GENERATE INFERENCE SERVICE
 # Basic generation with auto-detected environment
