@@ -1,180 +1,265 @@
-# GitHub Issue Template Setup Guide
+# Advanced GitHub Issue Form Collapsible Sections
 
-## 📁 File Structure
-Create this folder structure in your repository:
+## 🎯 Key Techniques
 
-```
-your-repo/
-├── .github/
-│   ├── ISSUE_TEMPLATE/
-│   │   ├── config.yml
-│   │   └── onboarding_request.yml
-│   └── workflows/
-│       └── onboarding_automation.yml
-└── README.md
-```
-
-## 📝 Step-by-Step Setup
-
-### 1. Create the Issue Template
-Save the onboarding YAML form as:
-`.github/ISSUE_TEMPLATE/onboarding_request.yml`
-
-### 2. Configure Issue Template Chooser
-Create `.github/ISSUE_TEMPLATE/config.yml`:
-
-```yaml
-blank_issues_enabled: false
-contact_links:
-  - name: 🆘 Platform Support
-    url: https://your-company.slack.com/channels/platform-support
-    about: For urgent platform issues or questions
-  - name: 📖 Platform Documentation
-    url: https://docs.your-platform.com
-    about: Check our documentation for common questions
-```
-
-### 3. Create GitHub Actions Workflow (Optional)
-Create `.github/workflows/onboarding_automation.yml`:
-
-```yaml
-name: Onboarding Request Automation
-
-on:
-  issues:
-    types: [opened]
-
-jobs:
-  process_onboarding:
-    if: contains(github.event.issue.labels.*.name, 'onboarding')
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: Auto-assign to Platform Team
-      uses: actions/github-script@v6
-      with:
-        script: |
-          github.rest.issues.addAssignees({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            issue_number: context.issue.number,
-            assignees: ['platform-admin', 'devops-lead']
-          });
-
-    - name: Add to Platform Project
-      uses: actions/github-script@v6
-      with:
-        script: |
-          // Add to project board
-          github.rest.projects.createCard({
-            column_id: 12345, // Replace with your project column ID
-            content_id: context.issue.number,
-            content_type: 'Issue'
-          });
-
-    - name: Send Slack Notification
-      uses: 8398a7/action-slack@v3
-      with:
-        status: custom
-        custom_payload: |
-          {
-            text: "New onboarding request from ${{ github.event.issue.user.login }}",
-            attachments: [{
-              color: 'good',
-              fields: [{
-                title: 'Issue',
-                value: '<${{ github.event.issue.html_url }}|${{ github.event.issue.title }}>',
-                short: true
-              }]
-            }]
-          }
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-```
-
-## 🔧 Advanced Configuration
-
-### Custom Labels and Automation
-Add these labels to your repository:
-- `onboarding` (blue)
-- `namespace-request` (yellow) 
-- `capability-request` (purple)
-- `urgent` (red)
-- `approved` (green)
-- `in-progress` (orange)
-
-### Issue Templates Configuration
-You can create multiple templates:
-
-```yaml
-# .github/ISSUE_TEMPLATE/config.yml
-blank_issues_enabled: false
-contact_links:
-  - name: 🚀 Onboarding Request
-    url: https://github.com/yourorg/yourrepo/issues/new?template=onboarding_request.yml
-    about: Request access to platform namespaces and capabilities
-  - name: 🐛 Bug Report  
-    url: https://github.com/yourorg/yourrepo/issues/new?template=bug_report.yml
-    about: Report a platform issue
-  - name: 💡 Feature Request
-    url: https://github.com/yourorg/yourrepo/issues/new?template=feature_request.yml
-    about: Suggest a new platform feature
-```
-
-## 📊 Analytics and Tracking
-
-### Issue Templates with Better Analytics
-Add these fields to track metrics:
-
-```yaml
-# Add to your onboarding_request.yml
-- type: dropdown
-  id: department
-  attributes:
-    label: Department
-    options:
-      - Engineering
-      - Data Science
-      - Product
-      - Marketing
-      - Operations
-  validations:
-    required: true
-
-- type: dropdown
-  id: team-size
-  attributes:
-    label: Team Size
-    options:
-      - "1-5 people"
-      - "6-15 people" 
-      - "16-50 people"
-      - "50+ people"
-```
-
-## 🔐 Security Considerations
-
-### Sensitive Information Handling
-For sensitive requests, add:
-
-```yaml
-- type: checkboxes
-  id: security-clearance
-  attributes:
-    label: Security Clearance
-    options:
-      - label: This request involves sensitive data
-      - label: This request requires security review
-      - label: This request involves external integrations
-```
-
-### Auto-redaction for Public Repos
-If your repo is public, add a warning:
-
+### 1. **Basic HTML Details/Summary**
 ```yaml
 - type: markdown
   attributes:
     value: |
-      ⚠️ **Security Notice**: This repository is public. 
-      Do not include sensitive information like passwords, API keys, or proprietary data.
+      <details>
+      <summary>Click to expand section</summary>
+      
+      Content goes here
+      
+      </details>
 ```
+
+### 2. **Open by Default**
+```yaml
+- type: markdown
+  attributes:
+    value: |
+      <details open>
+      <summary>This section starts expanded</summary>
+      
+      Content here is visible by default
+      
+      </details>
+```
+
+### 3. **Styled Headers with Emojis**
+```yaml
+- type: markdown
+  attributes:
+    value: |
+      <details>
+      <summary><h2>🔧 Development Resources</h2></summary>
+      
+      **Instructions:** Only fill if you selected Development above
+      
+      </details>
+```
+
+### 4. **Nested Collapsible Sections**
+```yaml
+- type: markdown
+  attributes:
+    value: |
+      <details>
+      <summary><h2>🏗️ Infrastructure Configuration</h2></summary>
+      
+      <details>
+      <summary><strong>💾 Compute Resources</strong></summary>
+      
+      CPU, Memory, GPU requirements
+      
+      </details>
+      
+      <details>
+      <summary><strong>🗄️ Storage Requirements</strong></summary>
+      
+      Persistent volumes and storage classes
+      
+      </details>
+      
+      <details>
+      <summary><strong>🌐 Networking</strong></summary>
+      
+      Load balancers, ingress, service mesh
+      
+      </details>
+      
+      </details>
+```
+
+### 5. **Conditional Instructions**
+```yaml
+- type: markdown
+  attributes:
+    value: |
+      <details>
+      <summary>📊 <strong>JupyterHub Configuration</strong> (expand if selected above)</summary>
+      
+      > ⚠️ **Only fill this section if you checked "JupyterHub" in capabilities**
+      
+      ### Resource Requirements
+      - How many concurrent users?
+      - What libraries/packages needed?
+      - GPU requirements for notebooks?
+      
+      ### Authentication
+      - LDAP/AD integration needed?
+      - Custom user groups?
+      
+      </details>
+```
+
+### 6. **Warning Boxes in Collapsible Sections**
+```yaml
+- type: markdown
+  attributes:
+    value: |
+      <details>
+      <summary>🚨 <strong>Production Environment (UAT)</strong></summary>
+      
+      > **⚠️ WARNING**  
+      > Production environments require additional approvals and security review.
+      > Please allow extra time for provisioning.
+      
+      > **📋 REQUIRED**  
+      > - Security officer approval  
+      > - Compliance checklist completion  
+      > - Production readiness review  
+      
+      </details>
+```
+
+### 7. **Tabular Data in Collapsible Sections**
+```yaml
+- type: markdown
+  attributes:
+    value: |
+      <details>
+      <summary>📊 <strong>Resource Planning Guide</strong></summary>
+      
+      | Workload Type | CPU | Memory | GPU |
+      |---------------|-----|--------|-----|
+      | Light Development | 2-4 cores | 4-8 Gi | None |
+      | Data Processing | 4-8 cores | 16-32 Gi | Optional |
+      | ML Training | 8+ cores | 32+ Gi | Required |
+      | Production API | 2-4 cores | 8-16 Gi | None |
+      
+      </details>
+```
+
+### 8. **Code Blocks in Collapsible Sections**
+```yaml
+- type: markdown
+  attributes:
+    value: |
+      <details>
+      <summary>⚙️ <strong>Example Configurations</strong></summary>
+      
+      ### Kubernetes Resource Limits
+      ```yaml
+      resources:
+        requests:
+          cpu: "2"
+          memory: "4Gi"
+        limits:
+          cpu: "4"
+          memory: "8Gi"
+      ```
+      
+      ### Docker Compose Example
+      ```yaml
+      services:
+        app:
+          image: myapp:latest
+          resources:
+            limits:
+              cpus: '2.0'
+              memory: 4G
+      ```
+      
+      </details>
+```
+
+### 9. **Multi-level Conditional Sections**
+```yaml
+- type: markdown
+  attributes:
+    value: |
+      <details>
+      <summary>🤖 <strong>Model Serving Configuration</strong></summary>
+      
+      <details>
+      <summary>🔧 <strong>Runtime Selection</strong></summary>
+      
+      Choose based on your model framework:
+      - **TensorFlow**: Use TensorFlow Serving
+      - **PyTorch**: Use TorchServe  
+      - **ONNX**: Use NVIDIA Triton
+      - **Multiple**: Use Seldon Core or KServe
+      
+      </details>
+      
+      <details>
+      <summary>⚡ <strong>Performance Requirements</strong></summary>
+      
+      | Metric | Low | Medium | High |
+      |--------|-----|--------|------|
+      | RPS | <10 | 10-100 | 100+ |
+      | Latency | >1s | 100ms-1s | <100ms |
+      | Models | 1-2 | 3-10 | 10+ |
+      
+      </details>
+      
+      </details>
+```
+
+### 10. **Progress Indicators**
+```yaml
+- type: markdown
+  attributes:
+    value: |
+      <details>
+      <summary>📈 <strong>Request Progress Tracking</strong></summary>
+      
+      ### Typical Timeline
+      
+      - [ ] **Day 0**: Request submitted
+      - [ ] **Day 1-2**: Initial review and validation  
+      - [ ] **Day 3-5**: Resource allocation and approval
+      - [ ] **Day 6-7**: Environment provisioning
+      - [ ] **Day 8-10**: Access configuration and testing
+      - [ ] **Day 11-14**: Documentation and handoff
+      
+      **Total Time: 2 weeks for standard requests**
+      
+      </details>
+```
+
+## 🎨 Styling Tips
+
+### Bold Summary Text
+```html
+<summary><strong>Section Title</strong></summary>
+```
+
+### Emoji Icons for Visual Hierarchy
+```html
+<summary>🔧 <strong>Development</strong></summary>
+<summary>🧪 <strong>Testing</strong></summary>
+<summary>🚀 <strong>Production</strong></summary>
+```
+
+### Combine with Blockquotes for Emphasis
+```html
+<details>
+<summary>Important Section</summary>
+
+> **Note:** This is important information
+> that users should pay attention to.
+
+</details>
+```
+
+## 🚫 Limitations to Know
+
+1. **No JavaScript**: Can't dynamically show/hide form fields
+2. **Limited Styling**: Basic HTML and markdown only
+3. **No Validation**: Can't require fields within collapsed sections
+4. **Mobile Experience**: Collapsible sections work but may be less intuitive
+
+## ✅ Best Practices
+
+1. **Clear Instructions**: Always indicate which sections to expand
+2. **Default States**: Use `open` attribute for important sections
+3. **Visual Hierarchy**: Use emojis and formatting consistently
+4. **User Guidance**: Provide examples and help text
+5. **Logical Grouping**: Group related fields together
+6. **Fallback Content**: Assume some users won't expand sections
+
+This approach gives users a cleaner, more organized form while keeping all the conditional logic clear through instructions and visual cues!
