@@ -1,18 +1,22 @@
-name: Onboarding Request
-description: Request access to dev/qa/uat namespaces and platform capabilities
+name: Onboarding Request with Collapsible Sections
+description: Request access with foldable sections
 title: "[Onboarding]: "
 labels: ["onboarding", "access-request"]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for submitting your onboarding request! Please fill out the information below.
+        Thanks for submitting your onboarding request! 
+        
+        **📋 Instructions:**
+        - Expand the sections below that apply to your request
+        - Only fill out the sections for namespaces/capabilities you selected
+        - Collapsed sections can be left empty
 
   - type: input
     id: requester-name
     attributes:
       label: Requester Name
-      description: Your full name
       placeholder: "John Doe"
     validations:
       required: true
@@ -21,7 +25,6 @@ body:
     id: team-name
     attributes:
       label: Team/Project Name
-      description: Which team or project is this for?
       placeholder: "Data Science Team, Project Alpha"
     validations:
       required: true
@@ -30,135 +33,155 @@ body:
     id: namespace-requirements
     attributes:
       label: Namespace Requirements
-      description: Select which namespaces you need access to
+      description: Select which namespaces you need (expand corresponding sections below)
       options:
-        - label: "🔧 Development (dev) - for development and testing"
-          required: false
-        - label: "🧪 QA (qa) - for quality assurance testing"
-          required: false
-        - label: "🚀 UAT (uat) - for user acceptance testing"
-          required: false
+        - label: "🔧 Development (dev) - expand Dev section below if selected"
+        - label: "🧪 QA (qa) - expand QA section below if selected" 
+        - label: "🚀 UAT (uat) - expand UAT section below if selected"
 
+  # Method 1: HTML Details/Summary (Works in GitHub)
   - type: markdown
     attributes:
       value: |
-        ---
-        ## 🔧 Development Namespace Resources
+        <details>
+        <summary><h2>🔧 Development Namespace Resources</h2></summary>
+        
         **Only fill this section if you selected "Development (dev)" above**
+        
+        </details>
 
   - type: input
     id: dev-cpu-request
     attributes:
-      label: CPU Request (Development)
-      description: "CPU cores needed for dev namespace"
+      label: Dev CPU Request
+      description: "Leave empty if not using dev namespace"
       placeholder: "e.g., 2, 4, 8"
 
   - type: input
     id: dev-memory-request
     attributes:
-      label: Memory Request (Development)
-      description: "RAM needed for dev namespace"
+      label: Dev Memory Request
+      description: "Leave empty if not using dev namespace"
       placeholder: "e.g., 4Gi, 8Gi, 16Gi"
 
   - type: input
     id: dev-gpu-request
     attributes:
-      label: GPU Request (Development)
-      description: "GPUs needed for dev namespace (leave empty if none)"
-      placeholder: "e.g., 1, 2 (leave empty for no GPU)"
+      label: Dev GPU Request
+      description: "Leave empty if no GPU needed"
+      placeholder: "e.g., 1, 2"
 
+  # Method 2: Collapsible with better formatting
   - type: markdown
     attributes:
       value: |
-        ---
-        ## 🧪 QA Namespace Resources
+        <details>
+        <summary><h2>🧪 QA Namespace Resources</h2></summary>
+        
         **Only fill this section if you selected "QA (qa)" above**
+        
+        Use the fields below to specify your QA environment requirements:
+        
+        </details>
 
   - type: input
     id: qa-cpu-request
     attributes:
-      label: CPU Request (QA)
-      description: "CPU cores needed for qa namespace"
+      label: QA CPU Request
+      description: "Leave empty if not using qa namespace"
       placeholder: "e.g., 2, 4, 8"
 
   - type: input
     id: qa-memory-request
     attributes:
-      label: Memory Request (QA)
-      description: "RAM needed for qa namespace"
+      label: QA Memory Request
+      description: "Leave empty if not using qa namespace"
       placeholder: "e.g., 4Gi, 8Gi, 16Gi"
 
   - type: input
     id: qa-gpu-request
     attributes:
-      label: GPU Request (QA)
-      description: "GPUs needed for qa namespace (leave empty if none)"
-      placeholder: "e.g., 1, 2 (leave empty for no GPU)"
+      label: QA GPU Request
+      description: "Leave empty if no GPU needed"
+      placeholder: "e.g., 1, 2"
 
+  # Method 3: Nested collapsible sections
   - type: markdown
     attributes:
       value: |
-        ---
-        ## 🚀 UAT Namespace Resources
+        <details>
+        <summary><h2>🚀 UAT Namespace Resources</h2></summary>
+        
         **Only fill this section if you selected "UAT (uat)" above**
+        
+        <details>
+        <summary><strong>💾 Compute Resources</strong></summary>
+        
+        Specify CPU, Memory, and GPU requirements for UAT environment.
+        
+        </details>
+        
+        </details>
 
   - type: input
     id: uat-cpu-request
     attributes:
-      label: CPU Request (UAT)
-      description: "CPU cores needed for uat namespace"
+      label: UAT CPU Request
+      description: "Leave empty if not using uat namespace"
       placeholder: "e.g., 2, 4, 8"
 
   - type: input
     id: uat-memory-request
     attributes:
-      label: Memory Request (UAT)
-      description: "RAM needed for uat namespace"
+      label: UAT Memory Request
+      description: "Leave empty if not using uat namespace"
       placeholder: "e.g., 4Gi, 8Gi, 16Gi"
 
   - type: input
     id: uat-gpu-request
     attributes:
-      label: GPU Request (UAT)
-      description: "GPUs needed for uat namespace (leave empty if none)"
-      placeholder: "e.g., 1, 2 (leave empty for no GPU)"
-
-  - type: markdown
-    attributes:
-      value: |
-        ---
-        ## 🛠️ Platform Capabilities
-        **Select the capabilities you need access to**
+      label: UAT GPU Request
+      description: "Leave empty if no GPU needed"
+      placeholder: "e.g., 1, 2"
 
   - type: checkboxes
     id: platform-capabilities
     attributes:
-      label: Required Capabilities
-      description: Select all capabilities you need
+      label: Platform Capabilities
+      description: Select capabilities you need (expand corresponding sections below)
       options:
-        - label: "🚀 Deployment - container orchestration and deployment"
-          required: false
-        - label: "📊 JupyterHub - interactive notebooks and data analysis"
-          required: false
-        - label: "🌊 Airflow - workflow orchestration and scheduling"
-          required: false
-        - label: "🗃️ Trino - distributed SQL query engine"
-          required: false
-        - label: "🤖 Model Serving - ML model deployment and serving"
-          required: false
+        - label: "🚀 Deployment - container orchestration"
+        - label: "📊 JupyterHub - interactive notebooks"
+        - label: "🌊 Airflow - workflow orchestration"
+        - label: "🗃️ Trino - distributed SQL queries"
+        - label: "🤖 Model Serving - ML model deployment (expand Model Serving section)"
 
+  # Advanced collapsible with styling
   - type: markdown
     attributes:
       value: |
-        ---
-        ## 🤖 Model Serving Configuration
-        **Only fill this section if you selected "Model Serving" above**
+        <details>
+        <summary>
+        <h2>🤖 Model Serving Configuration</h2>
+        </summary>
+        
+        > **📝 Note:** Only fill this section if you selected "Model Serving" above
+        
+        <br>
+        
+        **Runtime Selection:**
+        Choose the appropriate runtime for your ML models below.
+        
+        **Requirements:**
+        Provide details about your model serving needs.
+        
+        </details>
 
   - type: dropdown
     id: model-serving-runtime
     attributes:
       label: Model Serving Runtime
-      description: "Choose the runtime for model serving"
+      description: "Leave as 'Not applicable' if not using model serving"
       options:
         - "Not applicable"
         - "TensorFlow Serving"
@@ -173,24 +196,65 @@ body:
     id: model-serving-details
     attributes:
       label: Model Serving Details
-      description: "Additional details about your model serving requirements"
+      description: "Leave empty if not using model serving"
       placeholder: |
         - Model type: (e.g., classification, regression, NLP)
         - Expected traffic: (e.g., 100 requests/hour)
         - Model size: (e.g., 500MB)
         - Special requirements: (e.g., GPU inference, real-time)
 
+  # Method 4: Emoji-based collapsible sections
   - type: markdown
     attributes:
       value: |
-        ---
-        ## 📋 Additional Information
+        <details>
+        <summary>📋 <strong>Additional Configuration Options</strong> (click to expand)</summary>
+        
+        <br>
+        
+        ### 🔐 Security Requirements
+        
+        <details>
+        <summary>Security and Compliance Settings</summary>
+        
+        - Do you need access to sensitive data?
+        - Are there compliance requirements (SOC2, HIPAA, etc.)?
+        - Do you need network isolation?
+        
+        </details>
+        
+        ### 🔌 Integration Requirements  
+        
+        <details>
+        <summary>External System Integrations</summary>
+        
+        - Database connections needed?
+        - Third-party API access required?
+        - Custom networking requirements?
+        
+        </details>
+        
+        </details>
+
+  - type: textarea
+    id: security-requirements
+    attributes:
+      label: Security & Compliance Details
+      description: "Only fill if you have special security requirements"
+      placeholder: "Describe any security, compliance, or access control needs"
+
+  - type: textarea
+    id: integration-requirements
+    attributes:
+      label: Integration Details
+      description: "Only fill if you need external integrations"
+      placeholder: "Describe database connections, APIs, or networking needs"
 
   - type: textarea
     id: business-justification
     attributes:
       label: Business Justification
-      description: "Why do you need these resources and capabilities?"
+      description: "Required: Why do you need these resources?"
       placeholder: "Describe the business need, expected usage, and timeline"
     validations:
       required: true
@@ -199,7 +263,6 @@ body:
     id: urgency
     attributes:
       label: Urgency Level
-      description: "How urgent is this request?"
       options:
         - "Low - can wait 2+ weeks"
         - "Medium - needed within 1-2 weeks"
@@ -208,28 +271,27 @@ body:
     validations:
       required: true
 
-  - type: input
-    id: timeline
+  # Final collapsible section with acknowledgments
+  - type: markdown
     attributes:
-      label: Expected Timeline
-      description: "When do you need this access by?"
-      placeholder: "e.g., End of this month, Before Q1 launch"
-
-  - type: textarea
-    id: additional-notes
-    attributes:
-      label: Additional Notes
-      description: "Any other requirements or special considerations?"
-      placeholder: "Security requirements, compliance needs, integrations, etc."
+      value: |
+        <details open>
+        <summary><h2>✅ Final Checklist & Acknowledgments</h2></summary>
+        
+        Please review and confirm the items below before submitting.
+        
+        </details>
 
   - type: checkboxes
     id: acknowledgments
     attributes:
-      label: Acknowledgments
+      label: Required Confirmations
       options:
+        - label: I have expanded and filled only the sections that apply to my request
+          required: true
         - label: I have discussed this request with my team lead/manager
           required: true
         - label: I understand that resource allocation is subject to availability and approval
           required: true
-        - label: I will follow all security and compliance guidelines for the requested access
+        - label: I will follow all security and compliance guidelines
           required: true
