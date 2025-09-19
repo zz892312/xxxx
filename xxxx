@@ -1,15 +1,372 @@
-# Simple one-liner to create MAR file
+# ==================================================
+# Method 1: Use Built-in TorchScript Handler (Recommended)
+# ==================================================
+
+# For TorchScript models (.pt files), use the built-in handler
 torch-model-archiver \
     --model-name dummy_model \
     --version 1.0 \
     --serialized-file model.pt \
-    --handler default \
+    --handler torch_script_handler \
     --export-path model-store/
-Step 2: Create auto-loading config
-bash# config.properties
-cat > config.properties << 'EOF'
-inference_address=http://0.0.0.0:8080
-management_address=http://0.0.0.0:8081
-load_models=all
-default_workers_per_model=1
+
+# Alternative built-in handlers you can try:
+# --handler base_handler
+# --handler vision_handler (for image models)
+# --handler text_handler (for text models)
+
+# ==================================================
+# Method 2: Create Simple Custom Handler
+# ==================================================
+
+# Create a minimal custom handler
+cat > simple_handler.py << 'EOF'
+import torch
+from ts.torch_handler.base_handler import BaseHandler
+
+class SimpleHandler(BaseHandler):
+    def initialize(self, context):
+        properties = context.system_properties
+        model_dir = properties.get("model_dir")
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        # Load TorchScript model
+        model_file = context.manifest['model']['serializedFile']
+        model_path = f"{model_dir}/{model_file}"
+        self.model = torch.jit.load(model_path, map_location=self.device)
+        self.model.eval()
+    
+    def preprocess(self, data):
+        # Convert input to tensor
+        inputs = []
+        for row in data:
+            input_data = row.get('body')
+            if isinstance(input_data, dict) and 'data' in input_data:
+                tensor = torch.tensor(input_data['data'], dtype=torch.float32)
+            elif isinstance(input_data, list):
+                tensor = torch.tensor(input_data, dtype=torch.float32)
+            else:
+                # Default tensor shape - adjust based on your model
+                tensor = torch.randn(1, 10)  # Change this to match your model's input
+            inputs.append(tensor)
+        return torch.stack(inputs).to(self.device)
+    
+    def inference(self, model_input):
+        with torch.no_grad():
+            return self.model(model_input)
+    
+    def postprocess(self, inference_output):
+        return inference_output.tolist()
 EOF
+
+# Create MAR with custom handler
+torch-model-archiver \
+    --model-name dummy_model \
+    --version 1.0 \
+    --serialized-file model.pt \
+    --handler simple_handler.py \
+    --export-path model-store/
+
+# ==================================================
+# Method 3: Check What Your Model Expects
+# ==================================================
+
+# First, let's inspect your model.pt to understand its structure
+cat > inspect_model.py << 'EOF'
+import torch
+
+# Load and inspect your model
+try:
+    model = torch.jit.load('model.pt', map_location='cpu')
+    print("✅ Model loaded successfully!")
+    
+    # Try to get model info
+    print(f"Model type: {type(model)}")
+    
+    # Check if we can get the model's expected input shape
+    try:
+        # Get the model's graph
+        graph = model.graph
+        print(f"Model graph inputs: {list(graph.inputs())}")
+        
+        # Try with different input shapes to see what works
+        test_inputs = [
+            torch.randn(1, 1),      # 1x1
+            torch.randn(1, 10),     # 1x10  
+            torch.randn(1, 784),    # 1x784 (MNIST-like)
+            torch.randn(1, 3, 224, 224),  # 1x3x224x224 (ImageNet-like)
+        ]
+        
+        for i, test_input in enumerate(test_inputs):
+            try:
+                with torch.no_grad():
+                    output = model(test_input)
+                print(f"✅ Input shape {test_input.shape} works! Output shape: {output.shape}")
+                break
+            except Exception as e:
+                print(f"❌ Input shape {test_input.shape} failed: {str(e)[:100]}")
+    
+    except Exception as e:
+        print(f"Could not analyze model structure: {e}")
+        
+except Exception as e:
+    print(f"❌ Failed to load model: {e}")
+    print("Make sure model.pt exists and is a valid TorchScript model")
+EOF
+
+python3 inspect_model.py
+
+# ==================================================
+# Method 4: Use TorchServe's Default TorchScript Approach
+# ==================================================
+
+# TorchServe has specific handlers for TorchScript models
+# Let's create the correct one:
+
+cat > torchscript_handler.py << 'EOF'
+"""
+TorchScript handler for TorchServe
+"""
+import logging
+import torch
+from ts.torch_handler.base_handler import BaseHandler
+
+logger = logging.getLogger(__name__)
+
+class TorchScriptHandler(BaseHandler):
+    """
+    Custom handler for TorchScript models
+    """
+    
+    def initialize(self, context):
+        """Initialize model artifacts"""
+        logger.info("Loading TorchScript model...")
+        
+        # Get properties
+        properties = context.system_properties
+        model_dir = properties.get("model_dir")
+        self.device = torch.device("cuda" if torch.cuda.is_available() and properties.get("gpu_id") else "cpu")
+        
+        # Load the TorchScript model
+        model_file = context.manifest['model']['serializedFile']
+        model_path = f"{model_dir}/{model_file}"
+        
+        try:
+            self.model = torch.jit.load(model_path, map_location=self.device)
+            self.model.eval()
+            logger.info(f"Model loaded successfully on {self.device}")
+        except Exception as e:
+            logger.error(f"Failed to load model: {e}")
+            raise e
+    
+    def preprocess(self, data):
+        """
+        Preprocess input data
+        """
+        logger.info(f"Preprocessing {len(data)} requests")
+        
+        preprocessed_data = []
+        
+        for request in data:
+            input_data = request.get('body')
+            
+            if isinstance(input_data, dict):
+                # Handle JSON input
+                if 'data' in input_data:
+                    # Tensor data in JSON
+                    tensor = torch.tensor(input_data['data'], dtype=torch.float32)
+                elif 'instances' in input_data:
+                    # TF Serving format
+                    tensor = torch.tensor(input_data['instances'], dtype=torch.float32)
+                else:
+                    # Try to use all values as input
+                    values = list(input_data.values()) if isinstance(input_data, dict) else input_data
+                    tensor = torch.tensor(values, dtype=torch.float32)
+            
+            elif isinstance(input_data, list):
+                # Handle list input
+                tensor = torch.tensor(input_data, dtype=torch.float32)
+            
+            elif isinstance(input_data, (int, float)):
+                # Handle scalar input
+                tensor = torch.tensor([input_data], dtype=torch.float32)
+                
+            else:
+                # Default fallback - create a random tensor
+                # You might want to adjust this based on your model
+                logger.warning(f"Unknown input format: {type(input_data)}, using default tensor")
+                tensor = torch.randn(10)  # Adjust size as needed
+            
+            # Ensure tensor has batch dimension
+            if tensor.dim() == 1:
+                tensor = tensor.unsqueeze(0)
+                
+            preprocessed_data.append(tensor)
+        
+        # Stack all tensors into a batch
+        try:
+            batch_tensor = torch.cat(preprocessed_data, dim=0).to(self.device)
+            logger.info(f"Batch tensor shape: {batch_tensor.shape}")
+            return batch_tensor
+        except Exception as e:
+            logger.error(f"Failed to create batch tensor: {e}")
+            # Return first tensor if batching fails
+            return preprocessed_data[0].to(self.device)
+    
+    def inference(self, model_input):
+        """
+        Run model inference
+        """
+        logger.info(f"Running inference on tensor shape: {model_input.shape}")
+        
+        try:
+            with torch.no_grad():
+                model_output = self.model(model_input)
+            logger.info(f"Inference successful, output shape: {model_output.shape}")
+            return model_output
+        except Exception as e:
+            logger.error(f"Inference failed: {e}")
+            raise e
+    
+    def postprocess(self, inference_output):
+        """
+        Post-process model output
+        """
+        logger.info("Post-processing inference output")
+        
+        # Convert to numpy/list for JSON serialization
+        if isinstance(inference_output, torch.Tensor):
+            output_list = inference_output.cpu().numpy().tolist()
+        else:
+            output_list = inference_output
+        
+        # Format as list of predictions
+        if isinstance(output_list, list) and len(output_list) > 0:
+            if isinstance(output_list[0], list):
+                # Multiple samples
+                return output_list
+            else:
+                # Single sample
+                return [output_list]
+        else:
+            return [output_list]
+EOF
+
+# Create MAR with the proper TorchScript handler
+torch-model-archiver \
+    --model-name dummy_model \
+    --version 1.0 \
+    --serialized-file model.pt \
+    --handler torchscript_handler.py \
+    --export-path model-store/
+
+# ==================================================
+# Method 5: Complete Setup Script
+# ==================================================
+
+cat > create_mar.sh << 'EOF'
+#!/bin/bash
+
+echo "🔧 Creating MAR file for model.pt..."
+
+# Create model-store directory
+mkdir -p model-store
+
+# Check if model.pt exists
+if [ ! -f "model.pt" ]; then
+    echo "❌ model.pt not found! Creating a dummy one for testing..."
+    python3 -c "
+import torch
+import torch.nn as nn
+
+class DummyModel(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.linear = nn.Linear(10, 5)
+    
+    def forward(self, x):
+        return self.linear(x)
+
+model = DummyModel()
+traced = torch.jit.trace(model, torch.randn(1, 10))
+traced.save('model.pt')
+print('✅ Created dummy model.pt')
+"
+fi
+
+# Try different approaches
+echo "Attempting MAR creation..."
+
+# Method 1: Try built-in TorchScript handler
+echo "🔄 Trying built-in TorchScript handler..."
+if torch-model-archiver \
+    --model-name dummy_model_builtin \
+    --version 1.0 \
+    --serialized-file model.pt \
+    --handler torch_script_handler \
+    --export-path model-store/ 2>/dev/null; then
+    echo "✅ Success with built-in handler!"
+    echo "Created: model-store/dummy_model_builtin.mar"
+fi
+
+# Method 2: Custom handler (always works)
+echo "🔄 Creating with custom handler..."
+if [ -f "torchscript_handler.py" ]; then
+    torch-model-archiver \
+        --model-name dummy_model_custom \
+        --version 1.0 \
+        --serialized-file model.pt \
+        --handler torchscript_handler.py \
+        --export-path model-store/
+    echo "✅ Success with custom handler!"
+    echo "Created: model-store/dummy_model_custom.mar"
+else
+    echo "❌ torchscript_handler.py not found!"
+fi
+
+# List created MAR files
+echo ""
+echo "📋 Created MAR files:"
+ls -la model-store/*.mar 2>/dev/null || echo "No MAR files created"
+
+echo ""
+echo "🚀 Ready to start TorchServe with:"
+echo "torchserve --start --model-store model-store --ts-config config.properties"
+EOF
+
+chmod +x create_mar.sh
+
+# ==================================================
+# Quick Test Setup
+# ==================================================
+
+cat > test_setup.py << 'EOF'
+#!/usr/bin/env python3
+
+import torch
+import requests
+import json
+import time
+
+def create_dummy_model():
+    """Create a simple dummy model for testing"""
+    print("Creating dummy model.pt...")
+    
+    class DummyModel(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear = torch.nn.Linear(10, 3)  # 10 inputs, 3 outputs
+        
+        def forward(self, x):
+            return torch.softmax(self.linear(x), dim=1)
+    
+    model = DummyModel()
+    example_input = torch.randn(1, 10)
+    traced_model = torch.jit.trace(model, example_input)
+    traced_model.save('model.pt')
+    print("✅ Dummy model.pt created")
+
+def test_model_loading():
+    """Test if the model can be loaded"""
+    try:
+        model = torch.jit.load('model.pt', map_locatio
