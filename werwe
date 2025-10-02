@@ -1,265 +1,244 @@
-# Advanced GitHub Issue Form Collapsible Sections
+name: Process Onboarding Approval
 
-## 🎯 Key Techniques
+on:
+  issue_comment:
+    types: [created]
 
-### 1. **Basic HTML Details/Summary**
-```yaml
-- type: markdown
-  attributes:
-    value: |
-      <details>
-      <summary>Click to expand section</summary>
-      
-      Content goes here
-      
-      </details>
-```
+permissions:
+  issues: write
+  contents: read
 
-### 2. **Open by Default**
-```yaml
-- type: markdown
-  attributes:
-    value: |
-      <details open>
-      <summary>This section starts expanded</summary>
-      
-      Content here is visible by default
-      
-      </details>
-```
+jobs:
+  check-approval:
+    runs-on: ubuntu-latest
+    if: |
+      contains(github.event.issue.labels.*.name, 'onboarding') &&
+      contains(github.event.issue.labels.*.name, 'pending-approval') &&
+      (contains(github.event.comment.body, '/approve') || contains(github.event.comment.body, '/APPROVE'))
+    
+    steps:
+      - name: Check if commenter is authorized
+        id: check_auth
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // List of authorized approvers (GitHub usernames)
+            const authorizedApprovers = ['team-lead', 'admin1', 'admin2'];
+            const commenter = context.payload.comment.user.login;
+            
+            if (!authorizedApprovers.includes(commenter)) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: `@${commenter} You are not authorized to approve onboarding requests. Please contact an administrator.`
+              });
+              core.setFailed('Unauthorized approver');
+              return false;
+            }
+            return true;
 
-### 3. **Styled Headers with Emojis**
-```yaml
-- type: markdown
-  attributes:
-    value: |
-      <details>
-      <summary><h2>🔧 Development Resources</h2></summary>
-      
-      **Instructions:** Only fill if you selected Development above
-      
-      </details>
-```
+      - name: Parse issue body
+        id: parse
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const body = issue.body;
+            
+            // Parse the issue form data
+            const appCodeMatch = body.match(/### Application Code\s*\n\s*(.+)/);
+            const appNameMatch = body.match(/### Application Name\s*\n\s*(.+)/);
+            const requesterMatch = body.match(/### Requester Name\s*\n\s*(.+)/);
+            const emailMatch = body.match(/### Requester Email\s*\n\s*(.+)/);
+            const priorityMatch = body.match(/### Priority\s*\n\s*(.+)/);
+            
+            // Parse compatibilities checkboxes
+            const compatibilities = [];
+            if (body.includes('- [x] ADT') || body.includes('- [X] ADT')) {
+              compatibilities.push('ADT');
+            }
+            if (body.includes('- [x] Jupyter') || body.includes('- [X] Jupyter')) {
+              compatibilities.push('Jupyter');
+            }
+            if (body.includes('- [x] Airflow') || body.includes('- [X] Airflow')) {
+              compatibilities.push('Airflow');
+            }
+            
+            const data = {
+              appCode: appCodeMatch ? appCodeMatch[1].trim() : '',
+              appName: appNameMatch ? appNameMatch[1].trim() : '',
+              requester: requesterMatch ? requesterMatch[1].trim() : '',
+              email: emailMatch ? emailMatch[1].trim() : '',
+              priority: priorityMatch ? priorityMatch[1].trim() : 'Medium',
+              compatibilities: compatibilities
+            };
+            
+            core.setOutput('app_code', data.appCode);
+            core.setOutput('app_name', data.appName);
+            core.setOutput('requester', data.requester);
+            core.setOutput('email', data.email);
+            core.setOutput('priority', data.priority);
+            core.setOutput('compatibilities', JSON.stringify(data.compatibilities));
+            
+            return data;
 
-### 4. **Nested Collapsible Sections**
-```yaml
-- type: markdown
-  attributes:
-    value: |
-      <details>
-      <summary><h2>🏗️ Infrastructure Configuration</h2></summary>
-      
-      <details>
-      <summary><strong>💾 Compute Resources</strong></summary>
-      
-      CPU, Memory, GPU requirements
-      
-      </details>
-      
-      <details>
-      <summary><strong>🗄️ Storage Requirements</strong></summary>
-      
-      Persistent volumes and storage classes
-      
-      </details>
-      
-      <details>
-      <summary><strong>🌐 Networking</strong></summary>
-      
-      Load balancers, ingress, service mesh
-      
-      </details>
-      
-      </details>
-```
+      - name: Update main issue with approval
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Remove pending-approval label and add approved
+            await github.rest.issues.removeLabel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              name: 'pending-approval'
+            });
+            
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: ['approved', 'in-progress']
+            });
+            
+            // Add approval comment
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `✅ **Onboarding request approved by @${context.payload.comment.user.login}**\n\nCreating sub-issues for selected compatibilities...`
+            });
 
-### 5. **Conditional Instructions**
-```yaml
-- type: markdown
-  attributes:
-    value: |
-      <details>
-      <summary>📊 <strong>JupyterHub Configuration</strong> (expand if selected above)</summary>
-      
-      > ⚠️ **Only fill this section if you checked "JupyterHub" in capabilities**
-      
-      ### Resource Requirements
-      - How many concurrent users?
-      - What libraries/packages needed?
-      - GPU requirements for notebooks?
-      
-      ### Authentication
-      - LDAP/AD integration needed?
-      - Custom user groups?
-      
-      </details>
-```
+      - name: Trigger sub-issue creation
+        uses: actions/github-script@v7
+        env:
+          APP_CODE: ${{ steps.parse.outputs.app_code }}
+          APP_NAME: ${{ steps.parse.outputs.app_name }}
+          REQUESTER: ${{ steps.parse.outputs.requester }}
+          EMAIL: ${{ steps.parse.outputs.email }}
+          PRIORITY: ${{ steps.parse.outputs.priority }}
+          COMPATIBILITIES: ${{ steps.parse.outputs.compatibilities }}
+        with:
+          script: |
+            const compatibilities = JSON.parse(process.env.COMPATIBILITIES);
+            const appCode = process.env.APP_CODE;
+            const appName = process.env.APP_NAME;
+            const requester = process.env.REQUESTER;
+            const priority = process.env.PRIORITY;
+            const mainIssueNumber = context.issue.number;
+            
+            const subIssues = [];
+            const todoLabels = [];
+            
+            // Create sub-issues for each compatibility
+            for (const compat of compatibilities) {
+              const issueTitle = `[${appCode}] ${compat} Integration`;
+              const issueBody = `## ${compat} Integration for ${appName}
+              
+**Parent Issue:** #${mainIssueNumber}
+**Application Code:** ${appCode}
+**Application Name:** ${appName}
+**Requester:** ${requester}
+**Priority:** ${priority}
 
-### 6. **Warning Boxes in Collapsible Sections**
-```yaml
-- type: markdown
-  attributes:
-    value: |
-      <details>
-      <summary>🚨 <strong>Production Environment (UAT)</strong></summary>
-      
-      > **⚠️ WARNING**  
-      > Production environments require additional approvals and security review.
-      > Please allow extra time for provisioning.
-      
-      > **📋 REQUIRED**  
-      > - Security officer approval  
-      > - Compliance checklist completion  
-      > - Production readiness review  
-      
-      </details>
-```
+### Tasks
+- [ ] Review ${compat} compatibility requirements
+- [ ] Setup ${compat} environment
+- [ ] Configure ${compat} integration
+- [ ] Test ${compat} functionality
+- [ ] Document ${compat} setup
+- [ ] Validate with requester
 
-### 7. **Tabular Data in Collapsible Sections**
-```yaml
-- type: markdown
-  attributes:
-    value: |
-      <details>
-      <summary>📊 <strong>Resource Planning Guide</strong></summary>
-      
-      | Workload Type | CPU | Memory | GPU |
-      |---------------|-----|--------|-----|
-      | Light Development | 2-4 cores | 4-8 Gi | None |
-      | Data Processing | 4-8 cores | 16-32 Gi | Optional |
-      | ML Training | 8+ cores | 32+ Gi | Required |
-      | Production API | 2-4 cores | 8-16 Gi | None |
-      
-      </details>
-```
+### Notes
+This sub-issue tracks the ${compat} integration for the onboarding request.
+Please update the parent issue #${mainIssueNumber} when completed.`;
 
-### 8. **Code Blocks in Collapsible Sections**
-```yaml
-- type: markdown
-  attributes:
-    value: |
-      <details>
-      <summary>⚙️ <strong>Example Configurations</strong></summary>
-      
-      ### Kubernetes Resource Limits
-      ```yaml
-      resources:
-        requests:
-          cpu: "2"
-          memory: "4Gi"
-        limits:
-          cpu: "4"
-          memory: "8Gi"
-      ```
-      
-      ### Docker Compose Example
-      ```yaml
-      services:
-        app:
-          image: myapp:latest
-          resources:
-            limits:
-              cpus: '2.0'
-              memory: 4G
-      ```
-      
-      </details>
-```
+              const issue = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: issueTitle,
+                body: issueBody,
+                labels: ['sub-issue', `compat-${compat.toLowerCase()}`, priority.toLowerCase()],
+                assignees: []
+              });
+              
+              subIssues.push({
+                number: issue.data.number,
+                title: issueTitle,
+                url: issue.data.html_url,
+                compat: compat
+              });
+              
+              todoLabels.push(`todo-${compat.toLowerCase()}`);
+            }
+            
+            // Add TODO labels to main issue
+            if (todoLabels.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: mainIssueNumber,
+                labels: todoLabels
+              });
+            }
+            
+            // Update main issue with sub-issue links
+            let comment = '## 📋 Sub-Issues Created\n\n';
+            comment += 'The following sub-issues have been created for compatibility integrations:\n\n';
+            
+            for (const subIssue of subIssues) {
+              comment += `- [ ] **${subIssue.compat}**: #${subIssue.number}\n`;
+            }
+            
+            comment += '\n---\n';
+            comment += '✅ Check off items above as they are completed.\n';
+            comment += '🏷️ TODO labels have been added to track progress.';
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: mainIssueNumber,
+              body: comment
+            });
+            
+            core.setOutput('sub_issues', JSON.stringify(subIssues));
 
-### 9. **Multi-level Conditional Sections**
-```yaml
-- type: markdown
-  attributes:
-    value: |
-      <details>
-      <summary>🤖 <strong>Model Serving Configuration</strong></summary>
-      
-      <details>
-      <summary>🔧 <strong>Runtime Selection</strong></summary>
-      
-      Choose based on your model framework:
-      - **TensorFlow**: Use TensorFlow Serving
-      - **PyTorch**: Use TorchServe  
-      - **ONNX**: Use NVIDIA Triton
-      - **Multiple**: Use Seldon Core or KServe
-      
-      </details>
-      
-      <details>
-      <summary>⚡ <strong>Performance Requirements</strong></summary>
-      
-      | Metric | Low | Medium | High |
-      |--------|-----|--------|------|
-      | RPS | <10 | 10-100 | 100+ |
-      | Latency | >1s | 100ms-1s | <100ms |
-      | Models | 1-2 | 3-10 | 10+ |
-      
-      </details>
-      
-      </details>
-```
+      - name: Send notifications
+        uses: actions/github-script@v7
+        env:
+          REQUESTER_EMAIL: ${{ steps.parse.outputs.email }}
+          APP_NAME: ${{ steps.parse.outputs.app_name }}
+        with:
+          script: |
+            const requesterEmail = process.env.REQUESTER_EMAIL;
+            const appName = process.env.APP_NAME;
+            const issueUrl = context.payload.issue.html_url;
+            
+            // Create notification comment mentioning the requester
+            const notificationBody = `🔔 **Notification**
 
-### 10. **Progress Indicators**
-```yaml
-- type: markdown
-  attributes:
-    value: |
-      <details>
-      <summary>📈 <strong>Request Progress Tracking</strong></summary>
-      
-      ### Typical Timeline
-      
-      - [ ] **Day 0**: Request submitted
-      - [ ] **Day 1-2**: Initial review and validation  
-      - [ ] **Day 3-5**: Resource allocation and approval
-      - [ ] **Day 6-7**: Environment provisioning
-      - [ ] **Day 8-10**: Access configuration and testing
-      - [ ] **Day 11-14**: Documentation and handoff
-      
-      **Total Time: 2 weeks for standard requests**
-      
-      </details>
-```
+@${context.payload.issue.user.login} Your onboarding request for **${appName}** has been approved!
 
-## 🎨 Styling Tips
+**Next Steps:**
+- Sub-issues have been created for each selected compatibility
+- You can track progress on this issue
+- You will be notified when each sub-issue is completed
 
-### Bold Summary Text
-```html
-<summary><strong>Section Title</strong></summary>
-```
+**Issue URL:** ${issueUrl}
 
-### Emoji Icons for Visual Hierarchy
-```html
-<summary>🔧 <strong>Development</strong></summary>
-<summary>🧪 <strong>Testing</strong></summary>
-<summary>🚀 <strong>Production</strong></summary>
-```
+---
+*Note: Email notification would be sent to ${requesterEmail}*`;
 
-### Combine with Blockquotes for Emphasis
-```html
-<details>
-<summary>Important Section</summary>
-
-> **Note:** This is important information
-> that users should pay attention to.
-
-</details>
-```
-
-## 🚫 Limitations to Know
-
-1. **No JavaScript**: Can't dynamically show/hide form fields
-2. **Limited Styling**: Basic HTML and markdown only
-3. **No Validation**: Can't require fields within collapsed sections
-4. **Mobile Experience**: Collapsible sections work but may be less intuitive
-
-## ✅ Best Practices
-
-1. **Clear Instructions**: Always indicate which sections to expand
-2. **Default States**: Use `open` attribute for important sections
-3. **Visual Hierarchy**: Use emojis and formatting consistently
-4. **User Guidance**: Provide examples and help text
-5. **Logical Grouping**: Group related fields together
-6. **Fallback Content**: Assume some users won't expand sections
-
-This approach gives users a cleaner, more organized form while keeping all the conditional logic clear through instructions and visual cues!
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: notificationBody
+            });
+            
+            // In a real implementation, you would integrate with your email service here
+            // For example, using SendGrid, AWS SES, or GitHub's notification system
+            console.log(`Would send email to: ${requesterEmail}`);
+            console.log(`Subject: Onboarding Request Approved - ${appName}`);
+            console.log(`Issue: ${issueUrl}`);
