@@ -1,297 +1,87 @@
-name: Onboarding Request with Collapsible Sections
-description: Request access with foldable sections
-title: "[Onboarding]: "
-labels: ["onboarding", "access-request"]
+name: Application Onboarding Request
+description: Submit a new application for onboarding
+title: "[ONBOARDING] "
+labels: ["onboarding", "pending-approval"]
+assignees:
+  - team-lead
+
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for submitting your onboarding request! 
-        
-        **📋 Instructions:**
-        - Expand the sections below that apply to your request
-        - Only fill out the sections for namespaces/capabilities you selected
-        - Collapsed sections can be left empty
+        ## Application Onboarding Request
+        Please fill out this form to request onboarding for a new application.
 
   - type: input
-    id: requester-name
+    id: app_code
+    attributes:
+      label: Application Code
+      description: Unique identifier for the application
+      placeholder: "e.g., APP-001"
+    validations:
+      required: true
+
+  - type: input
+    id: app_name
+    attributes:
+      label: Application Name
+      description: Full name of the application
+      placeholder: "e.g., Data Analytics Platform"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Brief description of the application
+      placeholder: Describe the purpose and functionality of the application
+    validations:
+      required: true
+
+  - type: input
+    id: requester
     attributes:
       label: Requester Name
-      placeholder: "John Doe"
+      description: Your full name
     validations:
       required: true
 
   - type: input
-    id: team-name
+    id: requester_email
     attributes:
-      label: Team/Project Name
-      placeholder: "Data Science Team, Project Alpha"
+      label: Requester Email
+      description: Your email address
     validations:
       required: true
 
   - type: checkboxes
-    id: namespace-requirements
+    id: compatibilities
     attributes:
-      label: Namespace Requirements
-      description: Select which namespaces you need (expand corresponding sections below)
+      label: Required Compatibilities
+      description: Select all compatibility requirements for this application
       options:
-        - label: "🔧 Development (dev) - expand Dev section below if selected"
-        - label: "🧪 QA (qa) - expand QA section below if selected" 
-        - label: "🚀 UAT (uat) - expand UAT section below if selected"
-
-  # Method 1: HTML Details/Summary (Works in GitHub)
-  - type: markdown
-    attributes:
-      value: |
-        <details>
-        <summary><h2>🔧 Development Namespace Resources</h2></summary>
-        
-        **Only fill this section if you selected "Development (dev)" above**
-        
-        </details>
-
-  - type: input
-    id: dev-cpu-request
-    attributes:
-      label: Dev CPU Request
-      description: "Leave empty if not using dev namespace"
-      placeholder: "e.g., 2, 4, 8"
-
-  - type: input
-    id: dev-memory-request
-    attributes:
-      label: Dev Memory Request
-      description: "Leave empty if not using dev namespace"
-      placeholder: "e.g., 4Gi, 8Gi, 16Gi"
-
-  - type: input
-    id: dev-gpu-request
-    attributes:
-      label: Dev GPU Request
-      description: "Leave empty if no GPU needed"
-      placeholder: "e.g., 1, 2"
-
-  # Method 2: Collapsible with better formatting
-  - type: markdown
-    attributes:
-      value: |
-        <details>
-        <summary><h2>🧪 QA Namespace Resources</h2></summary>
-        
-        **Only fill this section if you selected "QA (qa)" above**
-        
-        Use the fields below to specify your QA environment requirements:
-        
-        </details>
-
-  - type: input
-    id: qa-cpu-request
-    attributes:
-      label: QA CPU Request
-      description: "Leave empty if not using qa namespace"
-      placeholder: "e.g., 2, 4, 8"
-
-  - type: input
-    id: qa-memory-request
-    attributes:
-      label: QA Memory Request
-      description: "Leave empty if not using qa namespace"
-      placeholder: "e.g., 4Gi, 8Gi, 16Gi"
-
-  - type: input
-    id: qa-gpu-request
-    attributes:
-      label: QA GPU Request
-      description: "Leave empty if no GPU needed"
-      placeholder: "e.g., 1, 2"
-
-  # Method 3: Nested collapsible sections
-  - type: markdown
-    attributes:
-      value: |
-        <details>
-        <summary><h2>🚀 UAT Namespace Resources</h2></summary>
-        
-        **Only fill this section if you selected "UAT (uat)" above**
-        
-        <details>
-        <summary><strong>💾 Compute Resources</strong></summary>
-        
-        Specify CPU, Memory, and GPU requirements for UAT environment.
-        
-        </details>
-        
-        </details>
-
-  - type: input
-    id: uat-cpu-request
-    attributes:
-      label: UAT CPU Request
-      description: "Leave empty if not using uat namespace"
-      placeholder: "e.g., 2, 4, 8"
-
-  - type: input
-    id: uat-memory-request
-    attributes:
-      label: UAT Memory Request
-      description: "Leave empty if not using uat namespace"
-      placeholder: "e.g., 4Gi, 8Gi, 16Gi"
-
-  - type: input
-    id: uat-gpu-request
-    attributes:
-      label: UAT GPU Request
-      description: "Leave empty if no GPU needed"
-      placeholder: "e.g., 1, 2"
-
-  - type: checkboxes
-    id: platform-capabilities
-    attributes:
-      label: Platform Capabilities
-      description: Select capabilities you need (expand corresponding sections below)
-      options:
-        - label: "🚀 Deployment - container orchestration"
-        - label: "📊 JupyterHub - interactive notebooks"
-        - label: "🌊 Airflow - workflow orchestration"
-        - label: "🗃️ Trino - distributed SQL queries"
-        - label: "🤖 Model Serving - ML model deployment (expand Model Serving section)"
-
-  # Advanced collapsible with styling
-  - type: markdown
-    attributes:
-      value: |
-        <details>
-        <summary>
-        <h2>🤖 Model Serving Configuration</h2>
-        </summary>
-        
-        > **📝 Note:** Only fill this section if you selected "Model Serving" above
-        
-        <br>
-        
-        **Runtime Selection:**
-        Choose the appropriate runtime for your ML models below.
-        
-        **Requirements:**
-        Provide details about your model serving needs.
-        
-        </details>
+        - label: ADT (Application Development Tools)
+        - label: Jupyter (Notebook Environment)
+        - label: Airflow (Workflow Orchestration)
 
   - type: dropdown
-    id: model-serving-runtime
+    id: priority
     attributes:
-      label: Model Serving Runtime
-      description: "Leave as 'Not applicable' if not using model serving"
+      label: Priority
+      description: What is the priority level?
       options:
-        - "Not applicable"
-        - "TensorFlow Serving"
-        - "PyTorch Serve (TorchServe)"
-        - "MLflow"
-        - "Seldon Core"
-        - "KServe"
-        - "NVIDIA Triton"
-        - "Custom Runtime"
-
-  - type: textarea
-    id: model-serving-details
-    attributes:
-      label: Model Serving Details
-      description: "Leave empty if not using model serving"
-      placeholder: |
-        - Model type: (e.g., classification, regression, NLP)
-        - Expected traffic: (e.g., 100 requests/hour)
-        - Model size: (e.g., 500MB)
-        - Special requirements: (e.g., GPU inference, real-time)
-
-  # Method 4: Emoji-based collapsible sections
-  - type: markdown
-    attributes:
-      value: |
-        <details>
-        <summary>📋 <strong>Additional Configuration Options</strong> (click to expand)</summary>
-        
-        <br>
-        
-        ### 🔐 Security Requirements
-        
-        <details>
-        <summary>Security and Compliance Settings</summary>
-        
-        - Do you need access to sensitive data?
-        - Are there compliance requirements (SOC2, HIPAA, etc.)?
-        - Do you need network isolation?
-        
-        </details>
-        
-        ### 🔌 Integration Requirements  
-        
-        <details>
-        <summary>External System Integrations</summary>
-        
-        - Database connections needed?
-        - Third-party API access required?
-        - Custom networking requirements?
-        
-        </details>
-        
-        </details>
-
-  - type: textarea
-    id: security-requirements
-    attributes:
-      label: Security & Compliance Details
-      description: "Only fill if you have special security requirements"
-      placeholder: "Describe any security, compliance, or access control needs"
-
-  - type: textarea
-    id: integration-requirements
-    attributes:
-      label: Integration Details
-      description: "Only fill if you need external integrations"
-      placeholder: "Describe database connections, APIs, or networking needs"
-
-  - type: textarea
-    id: business-justification
-    attributes:
-      label: Business Justification
-      description: "Required: Why do you need these resources?"
-      placeholder: "Describe the business need, expected usage, and timeline"
+        - Low
+        - Medium
+        - High
+        - Critical
+      default: 1
     validations:
       required: true
 
-  - type: dropdown
-    id: urgency
+  - type: textarea
+    id: additional_notes
     attributes:
-      label: Urgency Level
-      options:
-        - "Low - can wait 2+ weeks"
-        - "Medium - needed within 1-2 weeks"
-        - "High - needed within 1 week"
-        - "Critical - needed ASAP"
-    validations:
-      required: true
-
-  # Final collapsible section with acknowledgments
-  - type: markdown
-    attributes:
-      value: |
-        <details open>
-        <summary><h2>✅ Final Checklist & Acknowledgments</h2></summary>
-        
-        Please review and confirm the items below before submitting.
-        
-        </details>
-
-  - type: checkboxes
-    id: acknowledgments
-    attributes:
-      label: Required Confirmations
-      options:
-        - label: I have expanded and filled only the sections that apply to my request
-          required: true
-        - label: I have discussed this request with my team lead/manager
-          required: true
-        - label: I understand that resource allocation is subject to availability and approval
-          required: true
-        - label: I will follow all security and compliance guidelines
-          required: true
+      label: Additional Notes
+      description: Any additional information or special requirements
+      placeholder: Add any other relevant details here
