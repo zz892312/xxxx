@@ -1,37 +1,200 @@
-inference_address=http://0.0.0.0:8080
-management_address=http://0.0.0.0:8081
-metrics_address=http://0.0.0.0:8082
-grpc_inference_port=7070
-grpc_management_port=7071
+# Onboarding Workflow Setup Guide
 
-enable_envvars_config=true
-install_py_dep_per_model=true
-enable_metrics_api=true
-metrics_format=prometheus
+This guide will help you set up an automated GitHub onboarding workflow system that creates sub-issues based on compatibility selections and tracks progress.
 
-# DO NOT use load_models when using model_snapshot
-# load_models=all  # REMOVE THIS LINE
+## 📁 File Structure
 
-# Use model_snapshot instead - CRITICAL: Match the version exactly
-model_snapshot={\
-  "name": "startup.cfg",\
-  "modelCount": 1,\
-  "models": {\
-    "dummy": {\
-      "1.0": {\
-        "defaultVersion": true,\
-        "marName": "dummy.mar",\
-        "minWorkers": 1,\
-        "maxWorkers": 3,\
-        "batchSize": 1,\
-        "maxBatchDelay": 5000,\
-        "responseTimeout": 120\
-      }\
-    }\
-  }\
+Create the following files in your repository:
+
+```
+.github/
+├── ISSUE_TEMPLATE/
+│   └── onboarding.yml          # Issue form template
+└── workflows/
+    ├── onboarding-approval.yml  # Approval and sub-issue creation
+    └── sub-issue-tracker.yml    # Track sub-issue completion
+```
+
+## 🚀 Setup Steps
+
+### 1. Create Issue Form Template
+
+Create `.github/ISSUE_TEMPLATE/onboarding.yml` with the onboarding issue form template.
+
+### 2. Create Approval Workflow
+
+Create `.github/workflows/onboarding-approval.yml` with the approval workflow.
+
+### 3. Create Sub-Issue Tracker
+
+Create `.github/workflows/sub-issue-tracker.yml` with the completion tracker.
+
+### 4. Configure Authorized Approvers
+
+In the `onboarding-approval.yml` file, update the list of authorized approvers:
+
+```yaml
+const authorizedApprovers = ['team-lead', 'admin1', 'admin2'];
+```
+
+Replace with actual GitHub usernames who should be able to approve requests.
+
+### 5. Create Required Labels
+
+Go to your repository's Issues > Labels and create the following labels:
+
+**Status Labels:**
+- `onboarding` (color: #0366d6)
+- `pending-approval` (color: #fbca04)
+- `approved` (color: #28a745)
+- `in-progress` (color: #0e8a16)
+- `completed` (color: #6f42c1)
+- `sub-issue` (color: #d73a4a)
+
+**TODO Labels:**
+- `todo-adt` (color: #fef2c0)
+- `todo-jupyter` (color: #fef2c0)
+- `todo-airflow` (color: #fef2c0)
+
+**Completed Labels:**
+- `completed-adt` (color: #c5f0de)
+- `completed-jupyter` (color: #c5f0de)
+- `completed-airflow` (color: #c5f0de)
+
+**Compatibility Labels:**
+- `compat-adt` (color: #bfdadc)
+- `compat-jupyter` (color: #bfdadc)
+- `compat-airflow` (color: #bfdadc)
+
+**Priority Labels:**
+- `low` (color: #c2e0c6)
+- `medium` (color: #fbca04)
+- `high` (color: #ff9800)
+- `critical` (color: #d73a4a)
+
+## 📋 How It Works
+
+### Workflow Process
+
+1. **User submits onboarding request**
+   - Fills out issue form with app details
+   - Selects required compatibilities (ADT, Jupyter, Airflow)
+   - Issue is created with `onboarding` and `pending-approval` labels
+
+2. **Approval**
+   - Authorized user comments `/approve` on the issue
+   - System validates approver authorization
+   - Updates labels: removes `pending-approval`, adds `approved` and `in-progress`
+
+3. **Sub-Issue Creation**
+   - Creates separate issues for each selected compatibility
+   - Each sub-issue gets:
+     - Reference to parent issue
+     - Task checklist
+     - Appropriate labels
+   - Parent issue gets TODO labels for tracking
+
+4. **Progress Tracking**
+   - When sub-issue is closed:
+     - Removes corresponding TODO label from parent
+     - Adds completed label
+     - Posts update comment
+   - When all sub-issues complete:
+     - Parent issue marked as `completed`
+     - Final notification sent
+     - Parent issue automatically closed
+
+### Commands
+
+- `/approve` or `/APPROVE` - Approve the onboarding request (authorized users only)
+
+## 🔔 Notifications
+
+The system sends notifications at these stages:
+
+1. **On Approval** - Notifies requester that request was approved
+2. **Sub-Issue Creation** - Lists all created sub-issues
+3. **Sub-Issue Completion** - Updates when each compatibility is done
+4. **All Complete** - Final notification when everything is finished
+
+## 🔧 Customization
+
+### Adding New Compatibilities
+
+1. Add checkbox to `onboarding.yml`:
+```yaml
+- label: NewCompat (Description)
+```
+
+2. Update parsing in `onboarding-approval.yml`:
+```javascript
+if (body.includes('- [x] NewCompat') || body.includes('- [X] NewCompat')) {
+  compatibilities.push('NewCompat');
 }
+```
 
-# Default settings
-default_workers_per_model=1
-job_queue_size=100
-number_of_netty_threads=4
+3. Create labels: `todo-newcomat`, `completed-newcomat`, `compat-newcomat`
+
+### Email Integration
+
+To send actual emails, integrate with an email service in the "Send notifications" step:
+
+**Option 1: SendGrid**
+```yaml
+- name: Send Email
+  uses: sendgrid/sendgrid-nodejs@v6
+  env:
+    SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
+```
+
+**Option 2: AWS SES**
+```yaml
+- name: Send Email
+  uses: aws-actions/configure-aws-credentials@v1
+  with:
+    aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+    aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+```
+
+## 🧪 Testing
+
+1. Create a test onboarding issue
+2. Comment `/approve` (if authorized)
+3. Verify sub-issues are created
+4. Close a sub-issue and check parent is updated
+5. Close all sub-issues and verify parent closes
+
+## 🔒 Permissions
+
+The workflows require these permissions (already configured):
+- `issues: write` - Create and update issues
+- `contents: read` - Read repository content
+
+## 📚 Additional Resources
+
+- [GitHub Actions Documentation](https://docs.github.com/en/actions)
+- [GitHub Issue Forms](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-issue-forms)
+- [GitHub Script Action](https://github.com/actions/github-script)
+
+## 🐛 Troubleshooting
+
+**Issue: Approval not working**
+- Check if commenter is in authorized approvers list
+- Verify exact comment text is `/approve` or `/APPROVE`
+
+**Issue: Sub-issues not created**
+- Check workflow logs in Actions tab
+- Verify labels exist in repository
+- Check issue body format matches expected pattern
+
+**Issue: Parent not updating when sub-issue closes**
+- Verify sub-issue has `sub-issue` label
+- Check that parent issue reference exists in sub-issue body
+
+## 💡 Tips
+
+- Use issue templates to maintain consistency
+- Regularly review and update authorized approvers list
+- Monitor workflow execution in the Actions tab
+- Add more task items to sub-issue templates as needed
+- Customize notification messages for your team's needs
