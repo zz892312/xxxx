@@ -1,9 +1,9 @@
 name: Download JSON Attachments from Comments
-
+nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc3
 on:
   issue_comment:
     types: [created]
-
+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
 jobs:
   download-json:
     runs-on: ubuntu-latest
