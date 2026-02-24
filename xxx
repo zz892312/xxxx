@@ -1,3 +1,26 @@
+I’ll continue from Samson’s vision statement and add some additional context around the CLI and how it fits into the overall architecture.
+
+From the GitHub inference deployment pipeline integration perspective, we already had a templating layer in place. This is not something new.
+
+It has been powering capabilities such as dynamic image injection at runtime across different environments — which Helios depends on — along with resource validation and configuration standardization.
+
+As we continue to expose more KServe capabilities, the inference service contract may evolve. This includes scenarios such as vault bindings, authentication components, and other configuration extensions. Supporting these capabilities requires a flexible templating layer underneath.
+
+Previously, this templating layer was embedded inside the pipeline and not directly exposed to users.
+
+The Pharos CLI is designed to surface that layer and make it accessible.
+
+It consists of two main components:
+
+A templating engine that renders the raw deployment templates, allowing users to see and test configuration changes directly.
+
+A deployment and permission management layer that handles controlled deployments to lower environments and enforces cluster-level policies.
+
+By integrating this into Jupyter, we allow users to experiment earlier — before full GitHub onboarding — while still operating within the guardrails of our internal cluster governance model.
+
+This makes the system more transparent, more flexible, and easier to evolve as we introduce new capabilities.
+
+
 name: Track Sub-Issue Completion
 
 on:
