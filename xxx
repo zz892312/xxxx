@@ -21,6 +21,8 @@ By integrating this into Jupyter, we allow users to experiment earlier — befor
 This makes the system more transparent, more flexible, and easier to evolve as we introduce new capabilities.
 
 
+We plan to release the CLI by the end of this week, and because model hosting — especially for open-source models — is not always plug-and-play, with different models, handlers, configurations, and runtime engine versions requiring different setups, we intentionally avoid locking you into a fixed framework, keeping the options open to support your exploration, and if you need help with configuration or encounter issues, the AIFarm community is there to assist, we will fix bugs, add runtimes as needed, and incorporate your feedback as improvements.
+
 Why Pharos CLI?
 
 As KServe capabilities evolve (e.g., vault bindings, authentication components, configuration extensions), a flexible templating layer becomes critical.
