@@ -21,6 +21,32 @@ By integrating this into Jupyter, we allow users to experiment earlier — befor
 This makes the system more transparent, more flexible, and easier to evolve as we introduce new capabilities.
 
 
+Why Pharos CLI?
+
+As KServe capabilities evolve (e.g., vault bindings, authentication components, configuration extensions), a flexible templating layer becomes critical.
+
+Pharos CLI surfaces this layer and makes it accessible for earlier testing and experimentation.
+
+Core Components
+
+Templating Engine
+
+Renders raw deployment templates
+
+Exposes the configuration layer for transparency
+
+Deployment & Permission Management
+
+Manages controlled deployments to lower environments
+
+Enforces cluster-level governance
+
+Key Benefit
+
+Enables early experimentation (via Jupyter integration) before full GitHub onboarding — while maintaining cluster policy controls.
+
+
+
 name: Track Sub-Issue Completion
 
 on:
