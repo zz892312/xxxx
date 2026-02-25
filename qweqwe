@@ -1,0 +1,258 @@
+# LLM Runtime Performance on OpenShift Serverless
+
+## vLLM vs TensorRT-LLM with Envoy Auth — A Production Benchmark Report
+
+**Author:** [Your Name]
+**Platform:** OpenShift + Knative + RunAI
+**Model:** Qwen 8B FP8
+**Target Throughput:** 5,000 Requests Per Second (RPS)
+
+---
+
+# 1. Introduction
+
+Serving large language models (LLMs) in production requires balancing throughput, latency, cost efficiency, and operational complexity. In this benchmark, we evaluated two leading LLM runtimes — vLLM and TensorRT-LLM — on an enterprise OpenShift serverless stack.
+
+Our objective was simple but strict:
+
+> Sustain 5,000 RPS under production-like infrastructure constraints.
+
+Both runtimes achieved the target. However, the most important finding was not about which runtime won — it was about how serverless infrastructure behaves under sustained GPU-heavy workloads.
+
+---
+
+# 2. Infrastructure Stack
+
+Our stack reflects a real enterprise configuration:
+
+* OpenShift (Kubernetes foundation)
+* Knative Serving (serverless autoscaling)
+* Kourier (Knative ingress)
+* Envoy authentication sidecar (custom API security layer)
+* RunAI (fractional GPU scheduling)
+* vLLM or TensorRT-LLM (runtime under test)
+
+### Request Path
+
+Client → Kourier → Envoy Auth → Knative Pod → LLM Runtime → GPU
+
+This layered architecture introduces real-world overhead — which is intentional. Benchmarks without authentication, ingress, or autoscaling layers are rarely representative of production systems.
+
+---
+
+# 3. Model Selection
+
+We selected the Qwen 8B FP8 model (NVIDIA variant).
+
+Why this model?
+
+* Large enough to reflect real production behavior
+* Small enough to fit within fractional GPU allocation
+* FP8 quantization reduces weight size while preserving inference quality
+
+### Memory Profile
+
+* Raw weight size: ~8 GB
+* Effective runtime footprint: ~10–11 GB
+* Total GPU fraction allocated per pod: 40 GB (0.5 × A100 80GB)
+* Remaining KV cache budget: ~28–30 GB
+
+Note: While FP8 reduces weight precision to 8-bit representation, runtime metadata, scaling factors, and activation buffers increase effective VRAM usage beyond raw weight size.
+
+---
+
+# 4. GPU Fraction Strategy (RunAI)
+
+Each pod received 0.5 GPU fraction (40 GB VRAM).
+
+### Why not 0.25 GPU (20 GB)?
+
+After allocating ~10–11 GB for model weights and runtime overhead, only ~8–9 GB would remain for KV cache. Under moderate concurrency, this leads to:
+
+* KV cache saturation
+* CPU offloading
+* 3–5× P95 latency spikes
+
+### Practical Rule
+
+For stable high-throughput inference:
+
+> Total VRAM should be at least 2–3× the model weight size.
+
+KV cache size — and therefore concurrency capacity — depends heavily on context length and token generation profile.
+
+---
+
+# 5. Benchmark Methodology
+
+We evaluated both runtimes using identical configurations.
+
+### Test Conditions
+
+* Concurrency levels: 100 → 500 → 1,000 → 2,000 → 5,000
+* Warm-up period: 60 seconds
+* Measurement window: 5 minutes per level
+* Metrics captured:
+
+  * RPS
+  * P50 / P95 / P99 latency
+  * Error rate
+  * Replica count
+  * GPU utilization
+
+Cold-start and warm-start tests were executed separately.
+
+---
+
+# 6. Results
+
+## 6.1 Throughput
+
+📊 **[INSERT GRAPH: RPS over time — vLLM vs TensorRT-LLM side-by-side]**
+
+(Recommendation: show both runtimes on the same chart with identical scaling to visually demonstrate the plateau behavior at 5,000 RPS.)
+
+Both vLLM and TensorRT-LLM sustained 5,000 RPS under warm conditions (pre-scaled replicas).
+
+Neither runtime demonstrated a meaningful throughput advantage at this scale.
+
+This suggests the bottleneck likely resides in the ingress and control-plane path (Kourier + Envoy + Knative), rather than in the runtime itself, since both plateaued similarly.
+
+📊 **[INSERT GRAPH: GPU utilization (%) at 5,000 RPS for both runtimes]**
+
+(If GPU utilization is significantly below saturation, this strengthens the infrastructure bottleneck argument.)
+
+## 6.2 Latency Characteristics
+
+📊 **[INSERT GRAPH: Latency Percentiles — P50 / P95 / P99 comparison at each concurrency level]**
+
+(Recommendation: either use grouped bar charts per concurrency level or line charts across load levels.)
+
+📊 **[INSERT TABLE: Exact numeric comparison of P50 / P95 / P99 / Error Rate at 5,000 RPS]**
+
+While throughput was comparable, latency behavior differed:
+
+* vLLM showed slightly smoother latency under mixed prompt lengths
+* TensorRT-LLM demonstrated predictable latency under uniform prompts
+* Cold-start time was noticeably longer for TensorRT-LLM due to engine loading
+
+At steady state, both maintained acceptable P95 latency at 5,000 RPS.
+
+## 6.3 Cold Start Behavior
+
+📊 **[INSERT TIMELINE GRAPH: Pod creation → GPU initialization → First successful inference]**
+
+(Recommendation: show cold start time difference between vLLM and TensorRT-LLM.)
+
+Cold start exposed the largest divergence.
+
+LLM containers are fundamentally slow to initialize:
+
+* Large container images
+* CUDA context initialization
+* KV cache allocation
+* Kernel warmup
+* (TensorRT-LLM) Engine binary load
+
+Startup time ranged between tens of seconds depending on image pull and GPU initialization state.
+
+This has direct impact on autoscaling responsiveness.
+
+---
+
+# 7. The Architectural Lesson: Serverless vs LLMs
+
+The most important finding of this benchmark was architectural.
+
+Reactive serverless autoscaling semantics are poorly aligned with GPU-heavy, KV-cache-intensive LLM workloads at sustained high throughput.
+
+## Why?
+
+Serverless assumes:
+
+* Fast container startup
+* Short-lived, stateless workloads
+* Quick burst scaling
+
+LLM inference violates these assumptions:
+
+* Multi-GB container images
+* Expensive GPU initialization
+* Warm-state dependency (KV cache)
+* Continuous batching optimizations
+
+When traffic spikes, Knative launches new pods. But GPU pods can take 30–90+ seconds to become ready. During that window:
+
+* Existing replicas saturate
+* Latency spikes
+* Request queues grow
+
+This is not a tuning problem — it is a workload-platform mismatch.
+
+---
+
+# 8. The Scale-to-Zero Illusion
+
+At 5,000 RPS, scale-to-zero becomes impractical:
+
+* Any scale-down event introduces unacceptable cold-start windows
+* Minimum replicas must be > 0
+* Idle GPU cost remains
+
+Once minimum replicas are configured, the primary cost advantage of serverless disappears.
+
+---
+
+# 9. Recommendation
+
+For sustained or unpredictable high-throughput LLM workloads:
+
+Use standard Kubernetes Deployments with HPA instead of Knative.
+
+Recommended practices:
+
+* Set baseline replicas based on steady traffic
+* Scale using GPU utilization or RPS metrics
+* Pre-pull images on nodes
+* Reserve GPU capacity via quota scheduling
+
+Reserve serverless for:
+
+* Sparse traffic
+* Internal tools
+* Latency-tolerant workloads
+
+---
+
+# 10. Runtime Selection Guidance
+
+Choose vLLM if you prioritize:
+
+* Faster cold start
+* Operational simplicity
+* GPU portability
+* Active community ecosystem
+
+Choose TensorRT-LLM if you prioritize:
+
+* NVIDIA-specific optimization
+* Potential ceiling performance on fixed hardware
+* Engine-level tuning control
+
+At 5,000 RPS in our environment, both met production requirements.
+
+---
+
+# 11. Conclusion
+
+Both vLLM and TensorRT-LLM successfully sustained 5,000 RPS on OpenShift with fractional GPUs.
+
+The more important insight is architectural:
+
+High-throughput LLM inference depends on warm GPU state, large memory allocation, and continuous batching. Reactive serverless autoscaling does not align with these characteristics.
+
+For serious production LLM workloads, treat them as long-lived GPU services — not bursty serverless functions.
+
+---
+
+*Future work includes testing larger models (32B, 70B+), evaluating additional runtimes, and exploring disaggregated prefill/decode architectures.*
