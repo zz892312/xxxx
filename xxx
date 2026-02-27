@@ -48,6 +48,14 @@ Key Benefit
 Enables early experimentation (via Jupyter integration) before full GitHub onboarding — while maintaining cluster policy controls.
 
 
+guidellm benchmark \
+  --target "http://localhost:8000" \
+  --processor "/path/to/your/local/model" \
+  --profile constant \
+  --rate 5000 \
+  --max-seconds 60 \
+  --data '{"prompt_tokens_min": 300, "prompt_tokens_max": 500, "output_tokens_min": 25, "output_tokens_max": 50}'
+
 
 name: Track Sub-Issue Completion
 
