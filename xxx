@@ -1,4 +1,8 @@
-
+CUDA_VISIBLE_DEVICES=0 vllm serve /path/to/qwen-8b \
+  --port 8000 \
+  --enable-prefix-caching \
+  --enable-chunked-prefill \
+  --max-num-seqs 256 &
 GUIDELLM__MAX_CONCURRENCY=10000 guidellm benchmark \
   --target "http://localhost:8000" \
   --processor "/path/to/model" \
