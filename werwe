@@ -1,9 +1,3 @@
-python llm_rps_benchmark.py \
-  --target http://localhost:8000 \
-  --rps 5000 \
-  --duration 60 \
-  --max-tokens 50
-pip install aiohttp
 #!/usr/bin/env python3
 """
 LLM RPS Benchmark Script
@@ -280,8 +274,10 @@ async def worker_async(
             if sleep_time > 0:
                 await asyncio.sleep(sleep_time)
 
-        # Wait for all pending tasks
+        # Cancel all remaining pending tasks instead of waiting
         if pending_tasks:
+            for t in pending_tasks:
+                t.cancel()
             results = await asyncio.gather(*pending_tasks, return_exceptions=True)
             for result in results:
                 if isinstance(result, RequestResult):
@@ -537,9 +533,16 @@ def main():
     # Show progress bar in main process
     asyncio.run(progress_monitor(args.duration))
 
-    # Wait for all workers
+    # Wait for all workers — force kill after grace period
+    grace = min(30, args.timeout)
     for p in processes:
-        p.join()
+        p.join(timeout=grace)
+        if p.is_alive():
+            print(f"  ⚠️  Worker {p.pid} still running after {grace}s grace — killing it")
+            p.terminate()
+            p.join(timeout=5)
+            if p.is_alive():
+                p.kill()
 
     # Collect results
     all_stats = []
