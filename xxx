@@ -39,6 +39,25 @@ echo "All done"
 
 
 
+# Terminal 1 — your script hammering at 5000 RPS
+python your_load_script.py
+
+# Terminal 2 — GuideLLM capturing LLM-specific metrics
+guidellm benchmark \
+  --target "http://localhost:8000" \
+  --processor "/path/to/model" \
+  --profile constant \
+  --rate 500 \
+  --max-seconds 60 \
+  --data "prompt_tokens_min=300,prompt_tokens_max=500,output_tokens_min=25,output_tokens_max=50"
+
+# Terminal 3 — vLLM metrics (cache hit rate, queue depth)
+watch -n2 "curl -s http://localhost:8000/metrics | grep -E 'running|waiting|cache'"
+
+
+
+
+
 
 
 I’ll continue from Samson’s vision statement and add some additional context around the CLI and how it fits into the overall architecture.
