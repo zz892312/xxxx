@@ -20,6 +20,27 @@ guidellm benchmark \
   --max-seconds 60 \
   --data "prompt_tokens_min=300,prompt_tokens_max=500,output_tokens_min=25,output_tokens_max=50"
 
+
+
+for i in {1..8}; do
+  GUIDELLM__MAX_CONCURRENCY=2000 \
+  guidellm benchmark \
+    --target "http://localhost:8000" \
+    --processor "/path/to/model" \
+    --profile constant \
+    --rate 625 \
+    --max-seconds 60 \
+    --output-path "./results_$i.json" \
+    --data "prompt_tokens_min=300,prompt_tokens_max=500,output_tokens_min=25,output_tokens_max=50" &
+done
+
+wait
+echo "All done"
+
+
+
+
+
 I’ll continue from Samson’s vision statement and add some additional context around the CLI and how it fits into the overall architecture.
 
 From the GitHub inference deployment pipeline integration perspective, we already had a templating layer in place. This is not something new.
