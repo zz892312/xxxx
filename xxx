@@ -57,6 +57,15 @@ guidellm benchmark \
   --data '{"prompt_tokens_min": 300, "prompt_tokens_max": 500, "output_tokens_min": 25, "output_tokens_max": 50}'
 
 
+watch -n2 "curl -s http://localhost:8000/metrics | grep -E 'running|waiting|cache|tokens'"
+```
+
+You'll see a clear pattern as RPS climbs:
+```
+Low RPS  → num_requests_waiting ≈ 0, cache usage low
+Mid RPS  → batch fills up, cache usage 70-80%, throughput peaks
+High RPS → waiting queue grows, TTFT spikes → saturation point
+
 name: Track Sub-Issue Completion
 
 on:
