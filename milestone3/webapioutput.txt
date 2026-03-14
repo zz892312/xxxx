@@ -1,0 +1,129 @@
+
+╔════════════════════════════════════════════════════════════╗
+║   BabyTrack+ - External Web API Demo                      ║
+║   USDA FoodData Central API Integration                    ║
+╚════════════════════════════════════════════════════════════╝
+
+========================================
+1. Searching for Baby Foods: "banana"
+========================================
+
+→ Requesting: https://api.nal.usda.gov/fdc/v1/foods/search?query=banana&pageSize=5&api_key=***
+→ Search query: banana
+
+✓ Found 5185 results
+✓ Displaying top 5 items:
+
+1. BANANA
+   FDC ID: 2012128
+   Brand: Wonder Natural Foods Corp
+
+2. BANANA
+   FDC ID: 2011468
+   Brand: Kid Vids Educational Entertainment
+
+3. Bananas, dehydrated, or banana powder
+   FDC ID: 173945
+   Brand: Generic
+
+4. Banana, baked
+   FDC ID: 2709225
+   Brand: Generic
+
+5. Banana, raw
+   FDC ID: 2709224
+   Brand: Generic
+
+
+========================================
+2. Fetching Detailed Nutrition Information
+========================================
+
+╔════════════════════════════════════════════════════════════╗
+║                   NUTRITIONAL INFORMATION                  ║
+╚════════════════════════════════════════════════════════════╝
+
+Food: BANANA
+Brand: Wonder Natural Foods Corp
+Category: N/A
+
+Key Nutrients (per 100g):
+─────────────────────────────────────────────────────────
+
+  • Fatty acids, total trans: 0.0 g
+  • Calcium, Ca: 125.0 mg
+  • Protein: 12.5 g
+  • Total Sugars: 6.25 g
+  • Vitamin C, total ascorbic acid: 15.0 mg
+  • Energy: 312.0 kcal
+  • Iron, Fe: 1.12 mg
+  • Fatty acids, total saturated: 0.0 g
+  • Fatty acids, total polyunsaturated: 3.12 g
+  • Carbohydrate, by difference: 40.62 g
+  • Fiber, total dietary: 6.2 g
+  • Fatty acids, total monounsaturated: 3.12 g
+
+========================================
+3. Searching for Baby Foods: "apple sauce"
+========================================
+
+→ Requesting: https://api.nal.usda.gov/fdc/v1/foods/search?query=apple sauce&pageSize=5&api_key=***
+→ Search query: apple sauce
+
+✓ Found 68015 results
+✓ Displaying top 3 items:
+
+1. APPLE SAUCE
+   Category: Wholesome Snacks
+
+2. APPLE SAUCE
+   Category: Wholesome Snacks
+
+3. APPLE SAUCE
+   Category: Wholesome Snacks
+
+
+╔════════════════════════════════════════════════════════════╗
+║   ✓ External Web API Integration Successful!               ║
+╚════════════════════════════════════════════════════════════╝
+3. APPLE SAUCE
+   Category: Wholesome Snacks
+
+
+╔════════════════════════════════════════════════════════════╗
+║   ✓ External Web API Integration Successful!               ║
+3. APPLE SAUCE
+   Category: Wholesome Snacks
+
+
+╔════════════════════════════════════════════════════════════╗
+3. APPLE SAUCE
+   Category: Wholesome Snacks
+
+3. APPLE SAUCE
+   Category: Wholesome Snacks
+
+3. APPLE SAUCE
+   Category: Wholesome Snacks
+
+3. APPLE SAUCE
+   Category: Wholesome Snacks
+
+
+3. APPLE SAUCE
+   Category: Wholesome Snacks
+3. APPLE SAUCE
+3. APPLE SAUCE
+   Category: Wholesome Snacks
+
+
+╔════════════════════════════════════════════════════════════╗
+║   ✓ External Web API Integration Successful!               ║
+╚════════════════════════════════════════════════════════════╝
+
+Use Cases in BabyTrack+:
+  • Track nutritional content of solid foods fed to baby
+  • Calculate daily calorie and nutrient intake
+  • Generate feeding reports with nutrition data
+  • Alert caregivers about potential allergens
+  • Support informed feeding decisions with data
