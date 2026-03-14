@@ -1,0 +1,257 @@
+# github-drt/.github/workflows/deploy.yml
+#
+# Reusable deployment workflow.
+# Supports:
+#   - Optional build step (any custom command)
+#   - deploy_type: 'oc' (oc apply) or 'helm' (helm upgrade --install)
+#   - Namespace resolved internally from namespacemapping.json
+#   - Only 'dev' environment permitted
+
+name: Deploy to Cluster
+
+on:
+  workflow_call:
+    inputs:
+
+      # ── required ────────────────────────────────────────────────────────────
+      environment:
+        description: "Target environment (only 'dev' is permitted)"
+        required: true
+        type: string
+
+      deploy_type:
+        description: "Deployment type: 'oc' or 'helm'"
+        required: true
+        type: string
+
+      # ── build (optional) ────────────────────────────────────────────────────
+      build_command:
+        description: "Custom build command to run before deploying (e.g. 'mvn clean package')"
+        required: false
+        type: string
+        default: ""
+
+      # ── oc apply inputs ─────────────────────────────────────────────────────
+      manifests_path:
+        description: "Path to manifests folder (required when deploy_type = 'oc')"
+        required: false
+        type: string
+        default: ""
+
+      # ── helm inputs ─────────────────────────────────────────────────────────
+      chart_path:
+        description: "Path to helm chart in the calling repo (required when deploy_type = 'helm')"
+        required: false
+        type: string
+        default: ""
+
+      release_name:
+        description: "Helm release name (required when deploy_type = 'helm')"
+        required: false
+        type: string
+        default: ""
+
+      values_file:
+        description: "Path to helm values file (optional)"
+        required: false
+        type: string
+        default: ""
+
+      extra_helm_flags:
+        description: "Extra flags to pass to helm upgrade (optional, e.g. '--timeout 5m --atomic')"
+        required: false
+        type: string
+        default: ""
+
+      # ── broker ──────────────────────────────────────────────────────────────
+      broker_url:
+        description: "URL of the deployment broker service"
+        required: false
+        type: string
+        default: "https://your-deploy-broker.internal"
+
+    outputs:
+      deploy_status:
+        description: "Result of the deployment"
+        value: ${{ jobs.deploy.outputs.deploy_status }}
+
+jobs:
+  deploy:
+    name: "[${{ inputs.deploy_type }}] ${{ inputs.environment }} — ${{ github.repository }}"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+
+    outputs:
+      deploy_status: ${{ steps.deploy.outcome }}
+
+    steps:
+
+      # ── 1. Validate environment ─────────────────────────────────────────────
+      - name: Validate environment
+        run: |
+          if [ "${{ inputs.environment }}" != "dev" ]; then
+            echo "❌ Environment '${{ inputs.environment }}' is not allowed."
+            echo "   Only 'dev' is permitted via this workflow."
+            exit 1
+          fi
+          echo "✅ Environment: ${{ inputs.environment }}"
+
+      # ── 2. Validate deploy_type ─────────────────────────────────────────────
+      - name: Validate deploy type
+        run: |
+          DEPLOY_TYPE="${{ inputs.deploy_type }}"
+          if [ "$DEPLOY_TYPE" != "oc" ] && [ "$DEPLOY_TYPE" != "helm" ]; then
+            echo "❌ deploy_type must be 'oc' or 'helm', got: '$DEPLOY_TYPE'"
+            exit 1
+          fi
+
+          if [ "$DEPLOY_TYPE" = "oc" ] && [ -z "${{ inputs.manifests_path }}" ]; then
+            echo "❌ manifests_path is required when deploy_type = 'oc'"
+            exit 1
+          fi
+
+          if [ "$DEPLOY_TYPE" = "helm" ] && [ -z "${{ inputs.chart_path }}" ]; then
+            echo "❌ chart_path is required when deploy_type = 'helm'"
+            exit 1
+          fi
+
+          if [ "$DEPLOY_TYPE" = "helm" ] && [ -z "${{ inputs.release_name }}" ]; then
+            echo "❌ release_name is required when deploy_type = 'helm'"
+            exit 1
+          fi
+
+          echo "✅ deploy_type: $DEPLOY_TYPE"
+
+      # ── 3. Checkout github-drt for namespace mapping ────────────────────────
+      - name: Checkout github-drt (namespace mapping)
+        uses: actions/checkout@v4
+        with:
+          repository: myorg/github-drt
+          ref: main
+          path: .github-drt
+
+      # ── 4. Resolve namespace ────────────────────────────────────────────────
+      - name: Resolve namespace
+        id: resolve
+        run: |
+          REPO="${{ github.repository }}"
+          ENV="${{ inputs.environment }}"
+          MAPPING_FILE=".github-drt/namespacemapping.json"
+
+          REPO_EXISTS=$(jq -e --arg r "$REPO" 'has($r)' "$MAPPING_FILE" || echo "false")
+          if [ "$REPO_EXISTS" != "true" ]; then
+            echo "❌ Repo '$REPO' not found in namespacemapping.json"
+            exit 1
+          fi
+
+          ENV_EXISTS=$(jq -e --arg r "$REPO" --arg e "$ENV" '.[$r] | has($e)' "$MAPPING_FILE" || echo "false")
+          if [ "$ENV_EXISTS" != "true" ]; then
+            echo "❌ Environment '$ENV' not configured for '$REPO'"
+            exit 1
+          fi
+
+          NAMESPACE=$(jq -r --arg r "$REPO" --arg e "$ENV" '.[$r][$e]' "$MAPPING_FILE")
+          echo "✅ Resolved namespace: $NAMESPACE"
+          echo "namespace=$NAMESPACE" >> $GITHUB_OUTPUT
+
+      # ── 5. Checkout calling repo ────────────────────────────────────────────
+      - name: Checkout calling repo
+        uses: actions/checkout@v4
+        with:
+          path: .caller
+
+      # ── 6. Run build command (if provided) ──────────────────────────────────
+      - name: Build
+        if: ${{ inputs.build_command != '' }}
+        working-directory: .caller
+        run: |
+          echo "🔨 Running build: ${{ inputs.build_command }}"
+          ${{ inputs.build_command }}
+          echo "✅ Build succeeded"
+        # If this step fails, workflow stops here — deploy is never reached
+
+      # ── 7. Get temp OC token from broker ────────────────────────────────────
+      - name: Get temp OC token from broker
+        id: broker
+        run: |
+          NAMESPACE="${{ steps.resolve.outputs.namespace }}"
+
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X POST "${{ inputs.broker_url }}/auth" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"namespace\": \"$NAMESPACE\",
+              \"run_id\":    \"${{ github.run_id }}\",
+              \"repo\":      \"${{ github.repository }}\"
+            }")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ Broker rejected: $BODY"
+            exit 1
+          fi
+
+          TEMP_TOKEN=$(echo "$BODY" | jq -r '.token')
+          echo "::add-mask::$TEMP_TOKEN"
+          echo "oc_token=$TEMP_TOKEN" >> $GITHUB_OUTPUT
+          echo "✅ Temp token issued (duration: $(echo "$BODY" | jq -r '.duration'))"
+
+      # ── 8. OC Login ─────────────────────────────────────────────────────────
+      - name: OC Login
+        run: |
+          oc login \
+            --token=${{ steps.broker.outputs.oc_token }} \
+            --server=${{ vars.OC_SERVER }} \
+            --insecure-skip-tls-verify=false
+
+      # ── 9a. Deploy — oc apply ────────────────────────────────────────────────
+      - name: Deploy (oc apply)
+        id: deploy
+        if: ${{ inputs.deploy_type == 'oc' }}
+        run: |
+          NAMESPACE="${{ steps.resolve.outputs.namespace }}"
+          echo "🚀 oc apply → namespace: $NAMESPACE"
+
+          oc apply \
+            --namespace=$NAMESPACE \
+            -f ".caller/${{ inputs.manifests_path }}" \
+            --wait=true
+
+          echo "✅ oc apply complete"
+
+      # ── 9b. Deploy — helm ────────────────────────────────────────────────────
+      - name: Deploy (helm)
+        id: deploy_helm
+        if: ${{ inputs.deploy_type == 'helm' }}
+        run: |
+          NAMESPACE="${{ steps.resolve.outputs.namespace }}"
+          RELEASE="${{ inputs.release_name }}"
+          CHART=".caller/${{ inputs.chart_path }}"
+          VALUES_FLAG=""
+          EXTRA_FLAGS="${{ inputs.extra_helm_flags }}"
+
+          if [ -n "${{ inputs.values_file }}" ]; then
+            VALUES_FLAG="-f .caller/${{ inputs.values_file }}"
+          fi
+
+          echo "🚀 helm upgrade --install → release: $RELEASE  namespace: $NAMESPACE"
+
+          helm upgrade --install "$RELEASE" "$CHART" \
+            --namespace "$NAMESPACE" \
+            --create-namespace \
+            $VALUES_FLAG \
+            $EXTRA_FLAGS
+
+          echo "✅ helm deploy complete"
+
+      # ── 10. Verify rollout ───────────────────────────────────────────────────
+      - name: Verify rollout
+        run: |
+          oc rollout status deployment \
+            --namespace=${{ steps.resolve.outputs.namespace }} \
+            --timeout=120s || true

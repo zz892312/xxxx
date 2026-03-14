@@ -1,0 +1,20 @@
+# github-tre — helm deploy with a custom build script
+name: Deploy
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    uses: myorg/github-drt/.github/workflows/deploy.yml@main
+    with:
+      environment:      "dev"
+      deploy_type:      "helm"
+      build_command:    "./build.sh --env dev"
+      chart_path:       "./chart"
+      release_name:     "myapp"
+      values_file:      "./chart/values-dev.yaml"
+      extra_helm_flags: "--timeout 5m --atomic"
+    permissions:
+      contents: read
+      actions: read

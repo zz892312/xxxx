@@ -1,0 +1,10 @@
+{
+  "myorg/github-abc": {
+    "dev": "namespace1",
+    "qat": "namespace2"
+  },
+  "myorg/github-xyz": {
+    "dev": "namespace3",
+    "qat": "namespace4"
+  }
+}
