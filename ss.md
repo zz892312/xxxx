@@ -12,9 +12,61 @@ controlled by `github-drt`. Calling repos only pass an environment and their man
 
 We need external repos to trigger deployments to our cluster, but:
 
-- Calling repos may be **public** — secrets cannot live there
+- GitHub Secrets is **disabled at the org level** — no secrets available to any repo
 - We cannot expose the namespace token to any GitHub repo
 - We need to control **who** can deploy, **where**, and using **which workflow**
+- `main` branch is **reserved for Helios** — this workflow must never trigger from `main`
+
+### Branch Strategy
+
+| Branch | Pipeline |
+|---|---|
+| `main` | Helios only — standard change process |
+| `dev` (or any non-main) | This workflow — fast deployment for dev iteration |
+
+Deployments via this workflow are strictly scoped to non-production use.
+Any promotion to production still goes through Helios.
+
+---
+
+## Context & Constraints
+
+This solution exists because every standard option was evaluated and ruled out.
+The following is a record of what was considered and why it was not viable.
+
+### Options Ruled Out
+
+| Option | Why Ruled Out |
+|---|---|
+| GitHub Secrets | Disabled at the organisation level — not available to any tenant repo |
+| Pass token from calling repo | Exposes the namespace token to the caller |
+| HashiCorp Vault | No access — aifarm tenants awaiting BAI0 shared folder access (request pending) |
+| Self-hosted runners | Token would be stored on the runner machine itself — introduces a new attack surface we own and must protect |
+| Build a custom deployment portal | Too long to design, deploy, and maintain — not viable for short-term delivery |
+| Helios integration | Estimated **3 months** minimum for PRD, review, and implementation — does not meet delivery window |
+| Wait for platform team tooling | Estimated **2 years** before services are ready for tenant use |
+
+### Why This Matters
+
+The team has a hard short-term delivery window of **a few weeks**. The only infrastructure
+available with certainty is:
+
+- Git commit access to GitHub
+- GitHub Actions (public runners)
+- OpenShift cluster namespace access
+
+This solution is deliberately designed to work **within those minimum constraints** — no
+external services, no waiting on other teams, no long provisioning cycles.
+
+### Intended Lifespan
+
+This is a **short-term bridge solution**. It is designed to be:
+
+- Fast to ship (days, not months)
+- Easy to onboard new repos without workflow changes
+- Replaceable — when platform tooling becomes available, the broker can be retired
+  and the reusable workflow updated to point at the new service with no changes
+  required in calling repos
 
 ---
 
@@ -33,7 +85,7 @@ sequenceDiagram
     participant Broker as Deployment Broker
     participant OC as OpenShift Cluster
 
-    Dev->>ABC: git push to main
+    Dev->>ABC: git push to dev branch
     ABC->>DRT: calls deploy.yml (environment, manifests_path)
     Note over DRT: GitHub auto-issues GITHUB_TOKEN (ghs_...)
     DRT->>DRT: validate environment = dev
@@ -113,7 +165,7 @@ It is the **only place** cluster credentials ever exist.
 | GitHub API validation | Confirms token is real and belongs to claimed repo/run |
 | Repo allowlist | Repo must be in `ALLOWED_REPOS` |
 | Workflow origin | `referenced_workflows` must include `github-drt` |
-| Branch check | Must be deploying from `main` |
+| Branch check | Must be deploying from `dev` branch — `main` is reserved for Helios pipeline |
 | Run active | Run must be `in_progress` or `queued` |
 
 If all checks pass → `oc create token deploy-sa --namespace <ns> --duration 5m`
@@ -151,7 +203,7 @@ jobs:
 | PAT used instead of Actions token | `ghs_` prefix check rejects all PATs |
 | Unauthorized repo calls broker | `ALLOWED_REPOS` allowlist enforced |
 | Repo uses its own workflow, not ours | `referenced_workflows` check enforced |
-| Deploy from a feature branch | Branch must be `main` |
+| Deploy from `main` | `main` is blocked — reserved exclusively for Helios pipeline |
 | Token intercepted in transit | 5 min expiry + HTTPS + masked in logs |
 | Token scoped too broadly | `deploy-sa` is scoped to one namespace only |
 
